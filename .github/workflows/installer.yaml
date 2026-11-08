@@ -11,6 +11,11 @@ permissions:
 defaults:
   run:
     working-directory: Spielregal
+    shell: bash
+
+env:
+  ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+  ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
 
 jobs:
   build:
@@ -33,19 +38,30 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Abhängigkeiten installieren
-        run: npm install --no-audit --no-fund
+        run: |
+          for i in 1 2 3; do
+            npm install --no-audit --no-fund && exit 0
+            echo "Versuch $i fehlgeschlagen – neuer Versuch in 20 s …"
+            sleep 20
+          done
+          exit 1
 
       - name: Installer bauen
-        run: npm run ${{ matrix.script }}
+        run: |
+          for i in 1 2; do
+            npm run ${{ matrix.script }} && exit 0
+            echo "Build-Versuch $i fehlgeschlagen – neuer Versuch …"
+            sleep 20
+          done
+          exit 1
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Version lesen
         id: version
-        shell: bash
         run: echo "v=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Als Release veröffentlichen
