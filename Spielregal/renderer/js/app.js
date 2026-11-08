@@ -17,14 +17,15 @@ const App = {
     wishKind: '', wishSort: 'release',
     calRange: '90', calPlatforms: ['PlayStation 5', 'PlayStation 4', 'Nintendo Switch 2', 'Nintendo Switch'], calType: '', calPopular: true,
     labelSel: new Set(), labelLayout: 'sheet',
-    selected: { game: null, console: null, wish: null }
+    formatFilter: '', accFilter: '', checkOpen: {},
+    selected: { game: null, console: null, wish: null, accessory: null }
   },
 
   async init() {
     document.body.classList.toggle('mac', window.api.platform === 'darwin');
     this.loadPrefs();
     await Store.load();
-    await Online.refresh();
+    await Promise.all([Online.refresh(), Accounts.refresh()]);
     this.bind();
     this.render();
     window.api.onMenu((cmd) => this.command(cmd));
@@ -68,6 +69,11 @@ const App = {
         const n = Store.consoles.length, due = Store.consoles.filter((c) => Consoles.isDue(c)).length;
         return { title: 'Konsolen', subtitle: (n === 1 ? '1 Konsole' : `${n} Konsolen`) + (due ? ` · ${due} Wartung fällig` : '') };
       }
+      case 'accessories': {
+        const n = Views.filteredAccessories(s).length;
+        const v = Store.accessories.reduce((sum, a) => sum + itemValue(a), 0);
+        return { title: 'Zubehör & Sammlerstücke', subtitle: `${n} Eintr${n === 1 ? 'ag' : 'äge'}${v ? ' · ' + fmt.euroRound(v) : ''}` };
+      }
       case 'wishlist': {
         const n = Views.filteredWishes(s).length;
         return { title: 'Wunschliste', subtitle: n === 1 ? '1 Wunsch' : `${n} Wünsche` };
@@ -96,6 +102,7 @@ const App = {
     content.innerHTML = s.view === 'overview' ? Views.overview()
       : s.view === 'library' ? Views.library(s)
       : s.view === 'consoles' ? Views.consoles(s)
+      : s.view === 'accessories' ? Views.accessories(s)
       : s.view === 'wishlist' ? Views.wishlist(s)
       : s.view === 'calendar' ? Views.calendar(s)
       : Views.labels(s);
@@ -105,6 +112,7 @@ const App = {
     if (sub) sub.textContent = this.toolbarInfo().subtitle || '';
     if (s.view === 'labels') this.fitSheet();
     if (s.view === 'calendar') Calendar.load(s);
+    if (s.view === 'wishlist') Extras.backfillWishDates();
   },
 
   renderCalendar() {
@@ -122,12 +130,12 @@ const App = {
   renderInspector() {
     const s = this.state;
     const el = $('#inspector');
-    const show = s.inspector && ['library', 'consoles', 'wishlist'].includes(s.view);
+    const show = s.inspector && ['library', 'consoles', 'wishlist', 'accessories'].includes(s.view);
     el.classList.toggle('hidden', !show);
     if (!show) { el.innerHTML = ''; return; }
     const item = this.current();
     if (!item) {
-      const what = { library: 'Spiel', consoles: 'Konsole', wishlist: 'Wunsch' }[s.view];
+      const what = { library: 'Spiel', consoles: 'Konsole', wishlist: 'Wunsch', accessories: 'Eintrag' }[s.view];
       el.innerHTML = `<div class="insp-empty"><div>${icon('sidebar')}<div>Kein${s.view === 'library' || s.view === 'wishlist' ? '' : 'e'} ${what} ausgewählt</div>
         <div style="font-size:12px;margin-top:4px;color:var(--faint)">Klick zeigt Details, Doppelklick öffnet den Editor.</div></div></div>`;
       return;
@@ -135,6 +143,7 @@ const App = {
     const scroll = el.scrollTop;
     el.innerHTML = s.view === 'library' ? Views.gameInspector(item)
       : s.view === 'consoles' ? Views.consoleInspector(item)
+      : s.view === 'accessories' ? Views.accessoryInspector(item)
       : Views.wishInspector(item);
     el.scrollTop = scroll;
   },
@@ -155,19 +164,19 @@ const App = {
   // ---------- Auswahl ----------
 
   kindOfView(view = this.state.view) {
-    return { library: 'game', consoles: 'console', wishlist: 'wish' }[view] || null;
+    return { library: 'game', consoles: 'console', wishlist: 'wish', accessories: 'accessory' }[view] || null;
   },
 
   current() {
     const k = this.kindOfView();
     if (!k) return null;
     const id = this.state.selected[k];
-    return id ? Store.find(k === 'game' ? 'games' : k === 'console' ? 'consoles' : 'wishlist', id) : null;
+    return id ? Store.find(Extras.storeOf(k), id) : null;
   },
 
   select(kind, id) {
     this.state.selected[kind] = id;
-    const view = { game: 'library', console: 'consoles', wish: 'wishlist' }[kind];
+    const view = { game: 'library', console: 'consoles', wish: 'wishlist', accessory: 'accessories' }[kind];
     if (this.state.view !== view && this.state.view !== 'overview') this.state.view = view;
     this.render();
   },
@@ -287,6 +296,7 @@ const App = {
       this.renderContent();
       return;
     }
+    if (Extras.onChange(t, this.current(), this.kindOfView())) return;
     const g = this.current();
     if (t.dataset.quick === 'status' && g) {
       g.status = t.value;
@@ -318,9 +328,13 @@ const App = {
       if (mod && e.key === 'Enter') { e.preventDefault(); Modal.current.el.querySelector('[data-submit]')?.click(); }
       return;
     }
+    if (e.key === 'Enter' && e.target.matches('[data-check-new]')) {
+      e.preventDefault();
+      return Extras.addCheck(this.current(), e.target.value, this.kindOfView());
+    }
     // Ohne natives Menü (z. B. im Browser) Tastenkürzel selbst behandeln
     if (mod && !window.api.hasNativeMenu) {
-      const map = { n: 'new', f: 'find', ',': 'settings', 1: 'view:overview', 2: 'view:library', 3: 'view:consoles', 4: 'view:wishlist', 5: 'view:calendar', 6: 'view:labels' };
+      const map = { n: 'new', f: 'find', ',': 'settings', 1: 'view:overview', 2: 'view:library', 3: 'view:consoles', 4: 'view:accessories', 5: 'view:wishlist', 6: 'view:calendar', 7: 'view:labels' };
       if (map[e.key]) { e.preventDefault(); return this.command(map[e.key]); }
     }
     if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
@@ -335,7 +349,7 @@ const App = {
     e.preventDefault();
     const { item: kind, id } = el.dataset;
     this.select(kind, id);
-    const store = kind === 'game' ? 'games' : kind === 'console' ? 'consoles' : 'wishlist';
+    const store = Extras.storeOf(kind);
     const item = Store.find(store, id);
     if (!item) return;
     const entries = [];
@@ -353,6 +367,11 @@ const App = {
       entries.push('-');
       entries.push(['Etikett drucken …', 'printer', () => printLabels([labelFor(item, 'game')], 'single')]);
       entries.push(['Etikett als PDF …', 'download', () => exportLabels([labelFor(item, 'game')], 'single', `Etikett ${item.inventory}`)]);
+    } else if (kind === 'accessory') {
+      entries.push(['Bearbeiten …', 'edit', () => this.edit('accessory', id)]);
+      entries.push('-');
+      entries.push(['Etikett drucken …', 'printer', () => printLabels([labelFor(item, 'accessory')], 'single')]);
+      entries.push(['Etikett als PDF …', 'download', () => exportLabels([labelFor(item, 'accessory')], 'single', `Etikett ${item.inventory}`)]);
     } else if (kind === 'console') {
       entries.push(['Bearbeiten …', 'edit', () => this.edit('console', id)]);
       entries.push(['Wartung eintragen …', 'wrench', () => openMaintenanceEditor(item)]);
@@ -388,6 +407,7 @@ const App = {
   edit(kind, id) {
     if (kind === 'game') openGameEditor(Store.find('games', id));
     else if (kind === 'console') openConsoleEditor(Store.find('consoles', id));
+    else if (kind === 'accessory') openAccessoryEditor(Store.find('accessories', id));
     else openWishEditor(Store.find('wishlist', id));
   },
 
@@ -398,12 +418,13 @@ const App = {
     switch (name) {
       case 'new':
         if (s.view === 'consoles') return openConsoleEditor(null);
+        if (s.view === 'accessories') return openAccessoryEditor(null);
         if (s.view === 'wishlist') return openWishEditor(null);
         return openGameEditor(null, s.platform ? { platform: s.platform } : {});
       case 'edit': return item && this.edit(kind, item.id);
-      case 'delete': return item && deleteItem(kind === 'game' ? 'games' : kind === 'console' ? 'consoles' : 'wishlist', item);
+      case 'delete': return item && deleteItem(Extras.storeOf(kind), item);
       case 'sample': insertSampleData(); return this.render();
-      case 'settings': return openSettings();
+      case 'settings': return openSettings((el && el.dataset.settingsTab) || 'general');
       case 'toggle-inspector':
         s.inspector = !s.inspector; this.savePrefs(); this.renderToolbar(); return this.renderInspector();
       case 'label-print': return item && printLabels([labelFor(item, kind)], 'single');
@@ -425,6 +446,9 @@ const App = {
       case 'online-fill': return item && openGameEditor(item, {}, { search: true });
       case 'cal-refresh': try { localStorage.removeItem(CAL_CACHE_KEY); } catch (_) {} return Calendar.load(s, true);
       case 'cal-add': return addReleaseToWishlist(el.dataset.igdb, el);
+      case 'sync': return Accounts.openSync();
+      case 'value-all': el.disabled = true; return Extras.estimateAll(el);
+      default: return Extras.action(name, el, item, kind);
     }
   },
 
@@ -435,7 +459,13 @@ const App = {
   /** Wunsch → Sammlung */
   acquire(w) {
     const kind = WISH_KIND[w.kind] || WISH_KIND.game;
-    if (w.kind === 'console') {
+    if (w.kind === 'accessory') {
+      const a = newAccessory({ name: w.title, platform: w.platform, type: 'hwother', cover: w.cover, notes: w.notes, purchaseDate: isoDate(today()) });
+      a.inventory = Store.nextInventory('accessory');
+      Store.accessories.push(a);
+      Store.remove('wishlist', w.id);
+      toast(`„${w.title}“ zu Zubehör & Sammlerstücken hinzugefügt (${a.inventory})`);
+    } else if (w.kind === 'console') {
       const c = newConsole({ name: w.title, platform: w.platform, cover: w.cover, notes: w.notes, purchaseDate: isoDate(today()) });
       c.inventory = Store.nextInventory('console');
       Store.consoles.push(c);
@@ -484,7 +514,7 @@ async function deleteItem(store, item) {
   const ok = await confirmDialog({ title: `„${name}“ löschen?`, text: 'Der Eintrag wird dauerhaft entfernt.' + extra });
   if (!ok) return;
   Store.remove(store, item.id);
-  const kind = store === 'games' ? 'game' : store === 'consoles' ? 'console' : 'wish';
+  const kind = store === 'games' ? 'game' : store === 'consoles' ? 'console' : store === 'accessories' ? 'accessory' : 'wish';
   if (App.state.selected[kind] === item.id) App.state.selected[kind] = null;
   App.state.labelSel.delete(item.id);
   App.render();

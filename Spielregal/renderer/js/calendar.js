@@ -105,7 +105,7 @@ Views.calendar = function (state) {
   if (!Online.configured) {
     return `<div class="pad">${Views.calendarFilters(state)}</div>` + emptyState('calendar', 'Release-Kalender einrichten',
       'Der Kalender holt kommende Spiele, DLCs und Editionen von IGDB. Dafür einmal die kostenlosen Zugangsdaten in den Einstellungen eintragen. Eigene Termine aus der Wunschliste siehst du trotzdem unter „Nur Wunschliste“.',
-      `<button class="btn primary" data-action="settings">${icon('settings')}Online-Daten einrichten</button>`);
+      `<button class="btn primary" data-action="settings" data-settings-tab="igdb">${icon('settings')}Online-Daten einrichten</button>`);
   }
   if (!state.calPlatforms.length) {
     return `<div class="pad">${Views.calendarFilters(state)}${emptyState('gamepad', 'Keine Plattform gewählt', 'Wähle oben mindestens eine Plattform aus.')}</div>`;

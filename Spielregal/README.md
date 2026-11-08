@@ -44,10 +44,17 @@ Systemvoraussetzung: macOS 11 oder neuer bzw. Windows 10/11.
 - **Wunschliste:** Priorität, Erscheinungsdatum, Zielpreis und Shop-Link. Mit *Gekauft* übernimmst du einen Eintrag samt Inventarnummer in die Sammlung.
 - **Online-Daten (IGDB):** Beim Anlegen von Spielen, Konsolen und Wünschen erscheinen Vorschläge schon beim Tippen. Ein Klick übernimmt Cover, Publisher, Entwickler, Jahr, Genre, Reihe und USK. Bereits ausgefüllte Felder bleiben unverändert. Für vorhandene Spiele gibt es „Infos online ergänzen“ in der rechten Leiste.
 - **Release-Kalender:** Kommende Spiele, DLCs und Editionen für die gewählten Plattformen, plus eigene Termine aus der Wunschliste. Mit einem Klick landet ein Eintrag samt Cover auf der Wunschliste.
-- **Übersicht:** Kennzahlen, aktuelle Spiele, Wartungsstatus, kommende Termine und Verteilung nach Plattform.
+- **Physisch / Digital:** Jedes Spiel ist physisch (mit Zustand, Inventar-Nr. und Etikett) oder digital (mit Store, z. B. PlayStation Store, Steam, Game Pass). In der Bibliothek lässt sich danach filtern.
+- **Zubehör & Extras:** Controller, Headsets, VR, amiibo, Figuren, Steelbooks, Artbooks, Soundtracks, Merch. Jeweils mit Zustand, Wert, Inventar-Nr. (`ZB-0001`), Etikett und optionaler Verknüpfung zu einem Spiel.
+- **Checklisten:** Eigene Punkte oder Vorlagen pro Spiel, auf Wunsch mit „Fortschritt aus Liste“. Trophäen und Erfolge lassen sich als Checkliste übernehmen.
+- **Guides für 100 %:** Direktlinks zu PowerPyx, PSNProfiles bzw. TrueAchievements, Exophase, YouTube und einer Sammelobjekt-Suche.
+- **PlayStation & Xbox:** Trophäen bzw. Erfolge, Fortschritt und Spielzeit werden abgeglichen und den Spielen zugeordnet. Fehlende Titel lassen sich anlegen oder von Hand verknüpfen.
+- **Sammlungswert:** Aktueller Wert pro Eintrag, manuell oder über „Wert über eBay schätzen“. Die Übersicht zeigt den Gesamtwert und den Vergleich zum Kaufpreis.
+- **Preisvergleich:** Links zu idealo, Amazon, eBay (inkl. verkaufter Angebote), Kleinanzeigen und PriceCharting, optional mit eigenem Partner-Tag.
+- **Übersicht:** Kennzahlen, Sammlungswert, aktuelle Spiele, Wartungsstatus, kommende Termine und Verteilung nach Plattform.
 - **Sicherung:** Export und Import als JSON inklusive Cover (Einstellungen → Daten).
 
-**Tastenkürzel:** ⌘/Strg+N neuer Eintrag · ⌘/Strg+F Suche · ⌘/Strg+1–6 Ansichten · Entf löschen · ⌘/Strg+Enter im Dialog sichern
+**Tastenkürzel:** ⌘/Strg+N neuer Eintrag · ⌘/Strg+F Suche · ⌘/Strg+1–7 Ansichten · Entf löschen · ⌘/Strg+Enter im Dialog sichern
 
 **Daten** liegen hier:
 - Mac: `~/Library/Application Support/Spielregal`
@@ -68,7 +75,23 @@ Bei jedem Speichern bleibt die vorherige Version als `.bak` erhalten.
 
 Die Zugangsdaten liegen nur lokal (`igdb.json` im Datenordner) und sind nicht Teil der Sicherung.
 
-## Nächste Etappe
+## Konten & Preise einrichten (optional)
 
-- Marktwert der Sammlung über die PriceCharting-API (kostenpflichtig)
+Alles findest du unter *Einstellungen*. Zu jedem Reiter gibt es dort eine Kurzanleitung.
+
+- **PlayStation (Reiter „Konten“):**
+  1. Auf playstation.com anmelden.
+  2. Im selben Browser `https://ca.account.sony.com/api/v1/ssocookie` öffnen.
+  3. Den 64-stelligen `npsso`-Code kopieren und eintragen.
+  - Die Schnittstelle ist inoffiziell, die Verbindung hält etwa 2 Monate.
+- **Xbox (Reiter „Konten“):** Auf xbl.io mit dem Microsoft-Konto anmelden, dort einen API-Schlüssel erstellen und eintragen. Kostenlos, bis zu 150 Abrufe pro Stunde.
+- **Nintendo:** Es gibt keine Trophäen und keine Schnittstelle. Den Fortschritt pflegst du über Checklisten.
+- **eBay (Reiter „Preise“):** Auf developer.ebay.com registrieren und ein Production-Keyset anlegen. App ID und Cert ID eintragen.
+
+Alle Zugangsdaten liegen nur lokal im Datenordner (`psn.json`, `xbox.json`, `ebay.json`, `igdb.json`) und sind nicht Teil der Sicherung.
+
+## Geplant
+
 - Barcode-Scan
+- Handy-App (QR-Etiketten scannen)
+- How-to-Guides und Community-Bereich (zurückgestellt)

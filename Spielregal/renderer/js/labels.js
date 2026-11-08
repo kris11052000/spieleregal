@@ -7,13 +7,15 @@ function qrPayload(item) {
 
 function labelFor(item, type) {
   const isGame = type === 'game';
+  const isAcc = type === 'accessory';
   return {
     id: item.id,
     type,
-    kind: isGame ? 'Spiel' : 'Konsole',
+    kind: isGame ? 'Spiel' : isAcc ? 'Zubehör' : 'Konsole',
     title: (isGame ? item.title : item.name) || 'Ohne Titel',
     subtitle: isGame
       ? [item.platform, item.edition !== 'standard' ? EDITION[item.edition]?.label : ''].filter(Boolean).join(' · ')
+      : isAcc ? [ACCESSORY_TYPES[item.type]?.label, item.edition].filter(Boolean).join(' · ')
       : [item.model, item.edition].filter(Boolean).join(' · '),
     inventory: item.inventory || '',
     payload: qrPayload(item)

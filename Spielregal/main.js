@@ -5,6 +5,8 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const crypto = require('crypto');
 const { createIgdb } = require('./igdb');
+const { createPsn, createXbox, createEbay, wikipediaImage } = require('./services');
+const https = require('https');
 
 const isMac = process.platform === 'darwin';
 
@@ -157,9 +159,10 @@ function buildMenu() {
       { label: 'Übersicht', accelerator: 'CmdOrCtrl+1', click: send('view:overview') },
       { label: 'Bibliothek', accelerator: 'CmdOrCtrl+2', click: send('view:library') },
       { label: 'Konsolen', accelerator: 'CmdOrCtrl+3', click: send('view:consoles') },
-      { label: 'Wunschliste', accelerator: 'CmdOrCtrl+4', click: send('view:wishlist') },
-      { label: 'Release-Kalender', accelerator: 'CmdOrCtrl+5', click: send('view:calendar') },
-      { label: 'Etiketten', accelerator: 'CmdOrCtrl+6', click: send('view:labels') },
+      { label: 'Zubehör & Sammlerstücke', accelerator: 'CmdOrCtrl+4', click: send('view:accessories') },
+      { label: 'Wunschliste', accelerator: 'CmdOrCtrl+5', click: send('view:wishlist') },
+      { label: 'Release-Kalender', accelerator: 'CmdOrCtrl+6', click: send('view:calendar') },
+      { label: 'Etiketten', accelerator: 'CmdOrCtrl+7', click: send('view:labels') },
       { type: 'separator' },
       { role: 'reload', label: 'Neu laden' },
       { role: 'toggleDevTools', label: 'Entwicklerwerkzeuge' },
@@ -292,9 +295,39 @@ function registerIpc() {
   ipcMain.handle('igdb:searchPlatforms', wrap((q) => igdb.searchPlatforms(q)));
   ipcMain.handle('igdb:releases', wrap((opts) => igdb.releases(opts || {})));
 
+  // ---------- Konten & Preise ----------
+  const fetchImpl = (...args) => (net.fetch ? net.fetch(...args) : fetch(...args));
+  // Für den PSN-Login muss die Weiterleitung selbst ausgewertet werden
+  const getNoRedirect = (url, headers) => new Promise((resolve, reject) => {
+    const req = https.request(url, { method: 'GET', headers }, (res) => {
+      res.resume();
+      resolve({ status: res.statusCode, headers: res.headers });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => req.destroy(new Error('timeout')));
+    req.end();
+  });
+  const psn = createPsn({ configFile: path.join(paths.data, 'psn.json'), fetchImpl, getNoRedirect });
+  const xbox = createXbox({ configFile: path.join(paths.data, 'xbox.json'), fetchImpl });
+  const ebay = createEbay({ configFile: path.join(paths.data, 'ebay.json'), fetchImpl });
+
+  ipcMain.handle('accounts:status', () => ({ psn: psn.status(), xbox: xbox.status(), ebay: ebay.status() }));
+  ipcMain.handle('psn:connect', wrap((npsso) => psn.connect(npsso)));
+  ipcMain.handle('psn:disconnect', () => psn.disconnect());
+  ipcMain.handle('psn:titles', wrap(() => psn.titles()));
+  ipcMain.handle('psn:trophies', wrap((id, service) => psn.trophies(id, service)));
+  ipcMain.handle('xbox:connect', wrap((key) => xbox.connect(key)));
+  ipcMain.handle('xbox:disconnect', () => xbox.disconnect());
+  ipcMain.handle('xbox:titles', wrap(() => xbox.titles()));
+  ipcMain.handle('xbox:trophies', wrap((id) => xbox.trophies(id)));
+  ipcMain.handle('ebay:setConfig', (_e, cfg) => ebay.saveConfig(cfg || {}));
+  ipcMain.handle('ebay:test', wrap(() => ebay.test()));
+  ipcMain.handle('ebay:estimate', wrap((q) => ebay.estimate(q || {})));
+  ipcMain.handle('wiki:image', wrap((names) => wikipediaImage(fetchImpl, Array.isArray(names) ? names.slice(0, 4) : [])));
+
   ipcMain.handle('cover:fromUrl', wrap(async (url) => {
-    if (typeof url !== 'string' || !/^https:\/\/images\.igdb\.com\//.test(url)) throw new Error('Ungültige Bildadresse');
-    const res = await (net.fetch ? net.fetch(url) : fetch(url));
+    if (typeof url !== 'string' || !/^https:\/\/(images\.igdb\.com|upload\.wikimedia\.org|image\.api\.playstation\.com|psnobj\.prod\.dl\.playstation\.net|store-images\.s-microsoft\.com|images-eds-ssl\.xboxlive\.com)\//.test(url)) throw new Error('Ungültige Bildadresse');
+    const res = await fetchImpl(url, { headers: { 'User-Agent': 'Spielregal/0.3' } });
     if (!res.ok) throw new Error('Cover konnte nicht geladen werden (' + res.status + ')');
     const buf = Buffer.from(await res.arrayBuffer());
     const name = saveCoverFromImage(nativeImage.createFromBuffer(buf));

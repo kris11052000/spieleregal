@@ -1,7 +1,7 @@
 {
   "name": "spielregal",
   "productName": "Spielregal",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Verwaltung für Videospiele, Konsolen, Wartung und Wunschliste",
   "main": "main.js",
   "author": "Kris",
@@ -30,6 +30,7 @@
       "main.js",
       "preload.js",
       "igdb.js",
+      "services.js",
       "renderer/**/*",
       "!renderer/test.html",
       "package.json"

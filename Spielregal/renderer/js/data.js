@@ -27,6 +27,32 @@ const EDITION = {
   bundle:     { label: 'Bundle',              short: 'BUNDLE' }
 };
 
+const FORMAT = {
+  physical: { label: 'Physisch', short: 'PHYSISCH' },
+  digital:  { label: 'Digital',  short: 'DIGITAL' }
+};
+
+const STORES = ['PlayStation Store', 'PlayStation Plus', 'Microsoft Store', 'Game Pass', 'Nintendo eShop', 'Steam',
+  'Epic Games', 'GOG', 'EA app', 'Ubisoft Connect', 'Battle.net', 'Sonstige'];
+
+const ACCESSORY_TYPES = {
+  controller: { label: 'Controller', group: 'hardware', icon: 'gamepad' },
+  headset:    { label: 'Headset / Audio', group: 'hardware', icon: 'headphones' },
+  vr:         { label: 'VR / Kamera', group: 'hardware', icon: 'disc' },
+  charging:   { label: 'Ladestation / Akku', group: 'hardware', icon: 'plug' },
+  storage:    { label: 'Speicher / Karte', group: 'hardware', icon: 'layers' },
+  cable:      { label: 'Kabel / Adapter', group: 'hardware', icon: 'plug' },
+  hwother:    { label: 'Sonstige Hardware', group: 'hardware', icon: 'box' },
+  amiibo:     { label: 'amiibo / Toys-to-Life', group: 'collectible', icon: 'star' },
+  figure:     { label: 'Figur / Statue', group: 'collectible', icon: 'star' },
+  steelbook:  { label: 'Steelbook (einzeln)', group: 'collectible', icon: 'box' },
+  artbook:    { label: 'Artbook / Buch', group: 'collectible', icon: 'note' },
+  soundtrack: { label: 'Soundtrack / Vinyl', group: 'collectible', icon: 'disc' },
+  merch:      { label: 'Merchandise / Kleidung', group: 'collectible', icon: 'sparkle' },
+  poster:     { label: 'Poster / Druck', group: 'collectible', icon: 'note' },
+  other:      { label: 'Sonstiges Sammlerstück', group: 'collectible', icon: 'dots' }
+};
+
 const USK = { '': 'Keine Angabe', '0': 'USK 0', '6': 'USK 6', '12': 'USK 12', '16': 'USK 16', '18': 'USK 18' };
 
 const MAINTENANCE = {
@@ -46,7 +72,7 @@ const WISH_KIND = {
   limited:   { label: "Limited / Collector's", icon: 'box',        collectible: true },
   console:   { label: 'Konsole',               icon: 'gamepad',    collectible: true },
   dlc:       { label: 'DLC / Erweiterung',     icon: 'puzzle',     collectible: false },
-  accessory: { label: 'Zubehör',               icon: 'headphones', collectible: false }
+  accessory: { label: 'Zubehör / Sammlerstück', icon: 'headphones', collectible: true }
 };
 
 const PRIORITY = {
@@ -88,8 +114,8 @@ const Store = {
   empty() {
     return {
       version: 1,
-      settings: { prefixGame: 'SP', prefixConsole: 'KO', defaultInterval: 6 },
-      games: [], consoles: [], wishlist: []
+      settings: { prefixGame: 'SP', prefixConsole: 'KO', prefixAccessory: 'ZB', defaultInterval: 6, amazonTag: '', ebayCampaign: '' },
+      games: [], consoles: [], wishlist: [], accessories: [], sync: {}
     };
   },
 
@@ -97,7 +123,14 @@ const Store = {
     const loaded = await window.api.loadDb();
     const base = this.empty();
     this.data = loaded ? { ...base, ...loaded, settings: { ...base.settings, ...(loaded.settings || {}) } } : base;
-    for (const key of ['games', 'consoles', 'wishlist']) if (!Array.isArray(this.data[key])) this.data[key] = [];
+    for (const key of ['games', 'consoles', 'wishlist', 'accessories']) if (!Array.isArray(this.data[key])) this.data[key] = [];
+    if (!this.data.sync || typeof this.data.sync !== 'object') this.data.sync = {};
+    // Migration: „Digital“ war früher ein Zustand
+    for (const g of this.data.games) {
+      if (!g.format) g.format = g.condition === 'digital' ? 'digital' : 'physical';
+      if (g.condition === 'digital') g.condition = 'cib';
+      if (!Array.isArray(g.checklist)) g.checklist = [];
+    }
   },
 
   /** Speichert sofort oder (bei Reglern) leicht verzögert */
@@ -113,6 +146,7 @@ const Store = {
   get games() { return this.data.games; },
   get consoles() { return this.data.consoles; },
   get wishlist() { return this.data.wishlist; },
+  get accessories() { return this.data.accessories; },
   get settings() { return this.data.settings; },
 
   find(kind, id) { return this.data[kind].find((x) => x.id === id) || null; },
@@ -134,19 +168,19 @@ const Store = {
   },
 
   coverInUse(name) {
-    return ['games', 'consoles', 'wishlist'].some((k) => this.data[k].some((x) => x.cover === name));
+    return ['games', 'consoles', 'wishlist', 'accessories'].some((k) => this.data[k].some((x) => x.cover === name));
   },
 
   // ---------- Inventarnummern ----------
 
   prefix(type) {
     const s = this.settings;
-    const p = String((type === 'console' ? s.prefixConsole : s.prefixGame) || '').trim();
-    return p || (type === 'console' ? 'KO' : 'SP');
+    const p = String((type === 'console' ? s.prefixConsole : type === 'accessory' ? s.prefixAccessory : s.prefixGame) || '').trim();
+    return p || (type === 'console' ? 'KO' : type === 'accessory' ? 'ZB' : 'SP');
   },
 
   allInventory(excludeId) {
-    return [...this.games, ...this.consoles]
+    return [...this.games, ...this.consoles, ...this.accessories]
       .filter((x) => x.id !== excludeId && x.inventory)
       .map((x) => x.inventory);
   },
@@ -171,7 +205,7 @@ const Store = {
   /** Ergänzt Einträge aus einer Sicherung (bestehende IDs bleiben unangetastet) */
   merge(imported) {
     let added = 0;
-    for (const key of ['games', 'consoles', 'wishlist']) {
+    for (const key of ['games', 'consoles', 'wishlist', 'accessories']) {
       const ids = new Set(this.data[key].map((x) => x.id));
       for (const item of imported[key] || []) {
         if (item && item.id && !ids.has(item.id)) { this.data[key].push(item); added++; }
@@ -188,9 +222,10 @@ function newGame(fields = {}) {
   const now = new Date().toISOString();
   return {
     id: uid(), title: '', platform: '', publisher: '', developer: '', genre: '', series: '',
-    year: null, usk: '', edition: 'standard', editionNote: '', condition: 'cib',
-    status: 'backlog', progress: 0, playtime: null, inventory: '', barcode: '',
-    price: null, purchaseDate: '', notes: '', cover: '', createdAt: now, updatedAt: now, ...fields
+    year: null, usk: '', edition: 'standard', editionNote: '', condition: 'cib', format: 'physical', store: '',
+    status: 'backlog', progress: 0, progressAuto: false, playtime: null, inventory: '', barcode: '',
+    price: null, value: null, valueDate: '', valueNote: '', purchaseDate: '', notes: '', cover: '',
+    checklist: [], trophies: null, createdAt: now, updatedAt: now, ...fields
   };
 }
 
@@ -198,8 +233,34 @@ function newConsole(fields = {}) {
   const now = new Date().toISOString();
   return {
     id: uid(), name: '', platform: '', model: '', edition: '', serial: '', condition: 'cib',
-    inventory: '', price: null, purchaseDate: '', interval: Store.settings.defaultInterval ?? 6,
-    notes: '', cover: '', maintenance: [], createdAt: now, updatedAt: now, ...fields
+    inventory: '', price: null, value: null, valueDate: '', purchaseDate: '', interval: Store.settings.defaultInterval ?? 6,
+    year: null, summary: '', notes: '', cover: '', maintenance: [], createdAt: now, updatedAt: now, ...fields
+  };
+}
+
+function newAccessory(fields = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: uid(), name: '', type: 'controller', platform: '', manufacturer: '', edition: '', condition: 'cib',
+    inventory: '', price: null, value: null, valueDate: '', purchaseDate: '', linkedGame: '', notes: '', cover: '',
+    createdAt: now, updatedAt: now, ...fields
+  };
+}
+
+/** Wert eines Eintrags: aktueller Wert, sonst Kaufpreis */
+function itemValue(x) {
+  const v = Number(x && (x.value ?? x.price));
+  return Number.isFinite(v) ? v : 0;
+}
+
+function collectionValue() {
+  const games = Store.games.filter((g) => g.format !== 'digital');
+  const all = [...games, ...Store.consoles, ...Store.accessories];
+  return {
+    current: all.reduce((s, x) => s + itemValue(x), 0),
+    purchase: [...Store.games, ...Store.consoles, ...Store.accessories].reduce((s, x) => s + (Number(x.price) || 0), 0),
+    estimated: all.filter((x) => x.value != null).length,
+    total: all.length
   };
 }
 
@@ -216,7 +277,7 @@ function newWish(fields = {}) {
 const Game = {
   subtitle(g) { return [g.platform, g.year].filter(Boolean).join(' · '); },
   matches(g, q) {
-    return [g.title, g.platform, g.publisher, g.developer, g.genre, g.series, g.inventory, g.barcode, g.editionNote]
+    return [g.title, g.platform, g.publisher, g.developer, g.genre, g.series, g.inventory, g.barcode, g.editionNote, g.store]
       .some((v) => String(v || '').toLowerCase().includes(q));
   },
   facts(g) {
@@ -229,12 +290,13 @@ const Game = {
     add('Genre', g.genre);
     add('Reihe', g.series);
     if (g.edition !== 'standard') add('Edition', EDITION[g.edition].label + (g.editionNote ? ' – ' + g.editionNote : ''));
-    add('Zustand', CONDITION[g.condition]?.label);
+    add('Format', g.format === 'digital' ? 'Digital' + (g.store ? ' – ' + g.store : '') : 'Physisch');
+    if (g.format !== 'digital') add('Zustand', CONDITION[g.condition]?.label);
     add('Inventar-Nr.', g.inventory);
     add('Barcode', g.barcode);
     add('Kaufpreis', fmt.euro(g.price));
     add('Kaufdatum', fmt.date(g.purchaseDate));
-    if (g.playtime) add('Spielzeit', g.playtime + ' Std.');
+    if (g.playtime) add('Spielzeit', fmt.num(g.playtime) + ' Std.');
     return f;
   }
 };
@@ -271,11 +333,39 @@ const Consoles = {
     add('Modell', c.model);
     add('Edition', c.edition);
     add('Seriennummer', c.serial);
+    add('Erschienen', c.year);
     add('Zustand', CONDITION[c.condition]?.label);
     add('Inventar-Nr.', c.inventory);
     add('Kaufpreis', fmt.euro(c.price));
+    add('Aktueller Wert', fmt.euro(c.value));
     add('Kaufdatum', fmt.date(c.purchaseDate));
     add('Wartungsintervall', c.interval ? `alle ${c.interval} Monate` : 'aus');
+    return f;
+  }
+};
+
+const Accessories = {
+  subtitle(a) {
+    return [ACCESSORY_TYPES[a.type]?.label, a.platform, a.edition].filter(Boolean).join(' · ');
+  },
+  matches(a, q) {
+    return [a.name, a.platform, a.manufacturer, a.edition, a.inventory, a.notes, ACCESSORY_TYPES[a.type]?.label]
+      .some((v) => String(v || '').toLowerCase().includes(q));
+  },
+  facts(a) {
+    const f = [];
+    const add = (l, v) => { if (v !== null && v !== undefined && v !== '') f.push([l, v]); };
+    add('Art', ACCESSORY_TYPES[a.type]?.label);
+    add('Plattform', a.platform);
+    add('Hersteller', a.manufacturer);
+    add('Edition / Farbe', a.edition);
+    const linked = a.linkedGame && Store.find('games', a.linkedGame);
+    add('Gehört zu', linked ? linked.title : '');
+    add('Zustand', CONDITION[a.condition]?.label);
+    add('Inventar-Nr.', a.inventory);
+    add('Kaufpreis', fmt.euro(a.price));
+    add('Aktueller Wert', fmt.euro(a.value));
+    add('Kaufdatum', fmt.date(a.purchaseDate));
     return f;
   }
 };
@@ -285,12 +375,12 @@ const Consoles = {
 const SORTS = {
   title: 'Titel', platform: 'Plattform', manufacturer: 'Hersteller', publisher: 'Publisher',
   developer: 'Entwickler', genre: 'Genre', series: 'Spielereihe', year: 'Erscheinungsjahr',
-  inventory: 'Inventar-Nr.', progress: 'Fortschritt', added: 'Zuletzt hinzugefügt'
+  inventory: 'Inventar-Nr.', progress: 'Fortschritt', value: 'Wert', added: 'Zuletzt hinzugefügt'
 };
 
 const GROUPS = {
   off: 'Keine Gruppierung', platform: 'Plattform', manufacturer: 'Hersteller', publisher: 'Publisher',
-  developer: 'Entwickler', genre: 'Genre', series: 'Spielereihe', status: 'Status',
+  developer: 'Entwickler', genre: 'Genre', series: 'Spielereihe', status: 'Status', format: 'Physisch / Digital',
   condition: 'Zustand', year: 'Erscheinungsjahr'
 };
 
@@ -304,6 +394,7 @@ function sortGames(list, key) {
   return [...list].sort((a, b) => {
     if (key === 'added') return String(b.createdAt).localeCompare(String(a.createdAt));
     if (key === 'progress') return (b.progress - a.progress) || byTitle(a, b);
+    if (key === 'value') return (itemValue(b) - itemValue(a)) || byTitle(a, b);
     if (key === 'year') return ((a.year ?? 9999) - (b.year ?? 9999)) || byTitle(a, b);
     const va = String(sortValue(a, key)), vb = String(sortValue(b, key));
     if (va !== vb) {
@@ -323,7 +414,8 @@ function groupValue(g, key) {
   switch (key) {
     case 'manufacturer': v = manufacturerFor(g.platform); break;
     case 'status': v = STATUS[g.status]?.label; break;
-    case 'condition': v = CONDITION[g.condition]?.label; break;
+    case 'condition': v = g.format === 'digital' ? 'Digital' : CONDITION[g.condition]?.label; break;
+    case 'format': v = g.format === 'digital' ? 'Digital' + (g.store ? ' · ' + g.store : '') : 'Physisch'; break;
     case 'year': v = g.year ? String(g.year) : ''; break;
     default: v = g[key];
   }

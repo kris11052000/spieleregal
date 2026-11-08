@@ -177,6 +177,7 @@ function mountInventory(root, type, excludeId, onChange) {
 function openGameEditor(existing, defaults = {}, opts = {}) {
   const isNew = !existing;
   const g = existing ? { ...existing } : newGame({ inventory: Store.nextInventory('game'), ...defaults });
+  const autoInventory = existing ? null : g.inventory;
   let root;
   const val = (n) => root?.querySelector(`[name="${n}"]`)?.value ?? '';
   const cover = createCoverState(g.cover, () => val('title') || g.title, () => val('platform') || g.platform);
@@ -207,10 +208,15 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
       ${field('Spielzeit (Std.)', input('playtime', g.playtime ?? '', { placeholder: 'optional', attrs: 'inputmode="decimal"' }))}
     </div></fieldset>
     <fieldset class="fs"><legend>Sammlung</legend><div class="fields">
-      ${field('Zustand', select('condition', CONDITION, g.condition))}
-      <div class="field"><span>Inventar-Nr.</span>${inventoryControl('game', g.inventory, g.id)}</div>
-      ${field('Barcode (EAN)', input('barcode', g.barcode, { placeholder: 'optional', attrs: 'inputmode="numeric"' }))}
+      <div class="field full"><span>Format</span><div class="seg-field">
+        ${Object.entries(FORMAT).map(([k, f]) => `<label><input type="radio" name="format" value="${k}" ${g.format === k ? 'checked' : ''}><span>${icon(k === 'digital' ? 'download' : 'disc')}${f.label}</span></label>`).join('')}
+      </div></div>
+      <div class="field" data-when="digital">${'<span>Gekauft bei</span>' + select('store', { '': '— auswählen —', ...Object.fromEntries(STORES.map((x) => [x, x])) }, g.store)}</div>
+      <div class="field" data-when="physical"><span>Zustand</span>${select('condition', CONDITION_SELECT, g.condition)}</div>
+      <div class="field" data-when="physical"><span>Inventar-Nr.</span>${inventoryControl('game', g.inventory, g.id)}</div>
+      <div class="field" data-when="physical"><span>Barcode (EAN)</span>${input('barcode', g.barcode, { placeholder: 'optional', attrs: 'inputmode="numeric"' })}</div>
       ${field('Kaufpreis (€)', input('price', fmt.inputNumber(g.price), { placeholder: 'optional', attrs: 'inputmode="decimal"' }))}
+      <div class="field" data-when="physical"><span>Aktueller Wert (€)</span>${input('value', fmt.inputNumber(g.value), { placeholder: 'optional', attrs: 'inputmode="decimal"' })}</div>
       ${field('Kaufdatum', input('purchaseDate', g.purchaseDate, { type: 'date' }))}
     </div></fieldset>
     <fieldset class="fs" style="margin-bottom:0"><legend>Notizen</legend>
@@ -240,6 +246,12 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
       inventoryOk = mountInventory(el, 'game', g.id, validate);
 
       const syncEdition = () => { noteField.hidden = val('edition') === 'standard'; };
+      const syncFormat = () => {
+        const fmtVal = el.querySelector('[name="format"]:checked')?.value || 'physical';
+        for (const x of $$('[data-when]', el)) x.hidden = x.dataset.when !== fmtVal;
+      };
+      for (const r of $$('[name="format"]', el)) r.addEventListener('change', syncFormat);
+      syncFormat();
       el.querySelector('[name="edition"]').onchange = syncEdition;
       syncEdition();
       for (const r of $$('[name="status"]', el)) {
@@ -292,10 +304,18 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
           editionNote: f.edition === 'standard' ? '' : f.editionNote.trim(),
           status: f.status || 'backlog', progress: clampPct(parseNumber(f.progress)) ?? 0,
           playtime: parseNumber(f.playtime), condition: f.condition,
-          inventory: f.inventory.trim() || Store.nextInventory('game'),
+          format: f.format || 'physical', store: f.format === 'digital' ? f.store : '',
+          // Digitale Spiele brauchen kein Etikett: vorgeschlagene Nummer nicht verbrauchen
+          inventory: f.format === 'digital' ? (f.inventory.trim() === autoInventory ? '' : f.inventory.trim()) : (f.inventory.trim() || Store.nextInventory('game')),
           barcode: f.barcode.trim(), price: parseNumber(f.price), purchaseDate: f.purchaseDate,
           notes: f.notes, cover: cover.cover
         });
+        const newValue = f.format === 'digital' ? null : parseNumber(f.value);
+        if (newValue !== g.value) {
+          g.value = newValue;
+          g.valueDate = newValue != null ? isoDate(today()) : '';
+          g.valueNote = newValue != null ? 'Manuell eingetragen' : '';
+        }
         saved = true;
         Store.upsert('games', g);
         cover.commit();
@@ -328,9 +348,10 @@ function openConsoleEditor(existing) {
       ${field('Seriennummer', input('serial', c.serial), { full: true })}
     </div></fieldset>
     <fieldset class="fs"><legend>Sammlung</legend><div class="fields">
-      ${field('Zustand', select('condition', CONDITION, c.condition))}
+      ${field('Zustand', select('condition', CONDITION_SELECT, c.condition))}
       <div class="field"><span>Inventar-Nr.</span>${inventoryControl('console', c.inventory, c.id)}</div>
       ${field('Kaufpreis (€)', input('price', fmt.inputNumber(c.price), { placeholder: 'optional', attrs: 'inputmode="decimal"' }))}
+      ${field('Aktueller Wert (€)', input('value', fmt.inputNumber(c.value), { placeholder: 'optional', attrs: 'inputmode="decimal"' }))}
       ${field('Kaufdatum', input('purchaseDate', c.purchaseDate, { type: 'date' }))}
     </div></fieldset>
     <fieldset class="fs"><legend>Wartung</legend><div class="fields">
@@ -379,10 +400,18 @@ function openConsoleEditor(existing) {
           platformInput.value = r.platform;
           lastPlatform = r.platform;
           c.igdbId = r.igdbId;
+          const v = r.version || {};
+          c.year = v.year || r.year || c.year || null;
+          c.summary = v.summary || r.summary || c.summary || '';
           validate();
           refreshCover();
-          const got = await applyOnlineCover(coverField, r.version ? r.version.logoUrl : r.logoUrl);
-          hintEl.innerHTML = `${icon('check')} Von IGDB übernommen${got ? ' – Logo als Bild gesetzt' : ''}. Modell-Nr. und Seriennummer bitte selbst ergänzen.`;
+          hintEl.innerHTML = '<span class="spinner"></span>Suche Produktfoto …';
+          // Produktfoto von Wikipedia, sonst Logo von IGDB
+          let photo = '';
+          try { photo = await Online.call('wikiImage', [v.name, r.name].filter(Boolean)); } catch (_) { /* egal */ }
+          const got = await applyOnlineCover(coverField, photo || v.logoUrl || r.logoUrl);
+          const bits = [got ? (photo ? 'Foto von Wikipedia' : 'Logo als Bild') : '', c.year ? 'Erscheinungsjahr ' + c.year : ''].filter(Boolean);
+          hintEl.innerHTML = `${icon('check')} Übernommen${bits.length ? ' – ' + bits.join(', ') : ''}. Modell-Nr. und Seriennummer bitte selbst ergänzen.`;
         }
       });
       el.querySelector('[data-online-search]').onclick = () => suggest.search(nameInput.value || platformInput.value, { force: true });
@@ -399,6 +428,8 @@ function openConsoleEditor(existing) {
           price: parseNumber(f.price), purchaseDate: f.purchaseDate, interval: Number(f.interval) || 0,
           notes: f.notes, cover: cover.cover
         });
+        const cv = parseNumber(f.value);
+        if (cv !== c.value) { c.value = cv; c.valueDate = cv != null ? isoDate(today()) : ''; c.valueNote = cv != null ? 'Manuell eingetragen' : ''; }
         saved = true;
         Store.upsert('consoles', c);
         cover.commit();
@@ -519,7 +550,7 @@ function openWishEditor(existing) {
         async onPick(r) {
           setv('title', r.title);
           if (!val('platform').trim()) setv('platform', bestPlatform(r.platforms));
-          if (!val('releaseDate') && r.releaseDate && r.releaseDate >= isoDate(today())) setv('releaseDate', r.releaseDate);
+          if (!val('releaseDate') && r.releaseDate) setv('releaseDate', r.releaseDate);
           if (val('kind') === 'game' && r.group === 'dlc') setv('kind', 'dlc');
           w.igdbId = r.igdbId;
           validate();
@@ -555,95 +586,212 @@ function openWishEditor(existing) {
 
 // ---------- Einstellungen ----------
 
-async function openSettings() {
+const SETTINGS_TABS = { general: 'Allgemein', igdb: 'Online-Daten', accounts: 'Konten', prices: 'Preise', data: 'Daten' };
+
+async function openSettings(tab = 'general') {
   const s = Store.settings;
-  const info = await window.api.appInfo();
-  const ig = await Online.refresh();
-  openModal({
-    title: 'Einstellungen',
-    cls: 'narrow',
-    body: `
-      <fieldset class="fs"><legend>Inventarnummern</legend><div class="fields">
+  const [info, ig, acc] = await Promise.all([window.api.appInfo(), Online.refresh(), Accounts.refresh()]);
+  const ext = (url, label) => `<a href="#" data-ext="${h(url)}">${h(label)}</a>`;
+  const statusLine = (ok, text) => `<span class="${ok ? 'ok' : 'muted'}" style="font-size:12px">${ok ? '✓ ' : ''}${h(text)}</span>`;
+
+  const panes = {
+    general: `
+      <fieldset class="fs"><legend>Inventarnummern</legend><div class="fields three">
         ${field('Präfix Spiele', input('prefixGame', s.prefixGame, { cls: 'mono' }))}
         ${field('Präfix Konsolen', input('prefixConsole', s.prefixConsole, { cls: 'mono' }))}
+        ${field('Präfix Zubehör', input('prefixAccessory', s.prefixAccessory || 'ZB', { cls: 'mono' }))}
       </div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">Neue Nummern werden fortlaufend vergeben, z. B. <span data-example style="font-family:var(--mono)"></span>.</p>
       </fieldset>
-      <fieldset class="fs"><legend>Wartung</legend><div class="fields">
+      <fieldset class="fs" style="margin-bottom:0"><legend>Wartung</legend><div class="fields">
         ${field('Standard-Erinnerung für neue Konsolen', select('defaultInterval', { 0: 'Keine', 3: 'Alle 3 Monate', 6: 'Alle 6 Monate', 12: 'Jährlich' }, s.defaultInterval), { full: true })}
-      </div></fieldset>
-      <fieldset class="fs"><legend>Online-Daten (IGDB)</legend>
-        <p class="muted" style="font-size:12px;margin:0 0 10px">Für Spiel-Infos, Cover und den Release-Kalender. Kostenlos über einen Twitch-Entwicklerzugang.</p>
+      </div></fieldset>`,
+
+    igdb: `
+      <p class="muted" style="font-size:12px;margin:0 0 12px">Für Spiel- und Konsolen-Infos, Cover und den Release-Kalender. Kostenlos über einen Twitch-Entwicklerzugang.</p>
+      <div class="fields">
+        ${field('Client-ID', input('igdbClientId', ig.clientId, { cls: 'mono', attrs: 'autocomplete="off" spellcheck="false"' }))}
+        ${field('Client-Secret', input('igdbSecret', '', { type: 'password', placeholder: ig.hasSecret ? '•••••• gespeichert' : '', attrs: 'autocomplete="off"' }))}
+      </div>
+      <div class="inline" style="margin-top:10px;align-items:center;gap:10px">
+        <button class="btn" data-act="igdb-save">Speichern &amp; testen</button>
+        <span data-status="igdb">${statusLine(Online.configured, Online.configured ? 'Eingerichtet' : 'Noch nicht eingerichtet')}</span>
+      </div>
+      <details class="howto">
+        <summary>So bekommst du die Zugangsdaten (ca. 3 Minuten)</summary>
+        <ol>
+          <li>Auf ${ext('https://dev.twitch.tv/console/apps', 'dev.twitch.tv/console/apps')} mit einem Twitch-Konto anmelden. Zwei-Faktor-Authentifizierung muss im Twitch-Konto aktiv sein.</li>
+          <li><b>Register Your Application</b>: Name frei, aber eindeutig · OAuth Redirect URL <code>http://localhost</code> · Kategorie <i>Application Integration</i> · Client-Typ <i>Confidential</i>.</li>
+          <li>Bei der Anwendung auf <b>Manage</b>: <b>Client-ID</b> kopieren, unter <b>New Secret</b> ein Secret erzeugen und kopieren.</li>
+          <li>Beides oben eintragen und <b>Speichern &amp; testen</b>.</li>
+        </ol>
+      </details>`,
+
+    accounts: `
+      <div class="acct">
+        <div class="acct-head"><b>PlayStation Network</b><span data-status="psn">${statusLine(acc.psn.connected, acc.psn.connected ? `Verbunden${acc.psn.onlineId ? ' als ' + acc.psn.onlineId : ''}` : 'Nicht verbunden')}</span></div>
+        <p class="muted small">Trophäen, Fortschritt und Spielzeit (PS4/PS5). Inoffizielle Schnittstelle – kann sich ändern.</p>
+        <div class="inline">${input('npsso', '', { type: 'password', placeholder: 'NPSSO-Code (64 Zeichen) einfügen', attrs: 'autocomplete="off"' })}
+          <button class="btn" data-act="psn-connect">Verbinden</button>
+          ${acc.psn.connected ? '<button class="btn ghost" data-act="psn-disconnect">Trennen</button>' : ''}</div>
+        <details class="howto"><summary>So bekommst du den NPSSO-Code</summary><ol>
+          <li>Im Browser auf ${ext('https://www.playstation.com/', 'playstation.com')} mit deinem PSN-Konto anmelden.</li>
+          <li>Danach im selben Browser ${ext('https://ca.account.sony.com/api/v1/ssocookie', 'ca.account.sony.com/api/v1/ssocookie')} öffnen.</li>
+          <li>Dort steht <code>{"npsso":"…"}</code>. Den Code zwischen den Anführungszeichen (64 Zeichen) kopieren und oben einfügen.</li>
+          <li>Der Code ist wie ein Passwort – nicht weitergeben. Die Verbindung hält ca. 2 Monate, dann einfach neu verbinden.</li>
+        </ol></details>
+      </div>
+      <div class="acct">
+        <div class="acct-head"><b>Xbox</b><span data-status="xbox">${statusLine(acc.xbox.connected, acc.xbox.connected ? `Verbunden${acc.xbox.gamertag ? ' als ' + acc.xbox.gamertag : ''}` : 'Nicht verbunden')}</span></div>
+        <p class="muted small">Erfolge und Gamerscore über den Dienst OpenXBL (kostenlos, 150 Abrufe pro Stunde).</p>
+        <div class="inline">${input('xblKey', '', { type: 'password', placeholder: 'OpenXBL-API-Schlüssel einfügen', attrs: 'autocomplete="off"' })}
+          <button class="btn" data-act="xbox-connect">Verbinden</button>
+          ${acc.xbox.connected ? '<button class="btn ghost" data-act="xbox-disconnect">Trennen</button>' : ''}</div>
+        <details class="howto"><summary>So bekommst du den Schlüssel</summary><ol>
+          <li>${ext('https://xbl.io/', 'xbl.io')} öffnen und mit deinem Microsoft-/Xbox-Konto anmelden.</li>
+          <li>Im Profil unter <b>API Keys</b> einen neuen Schlüssel erstellen und kopieren.</li>
+        </ol></details>
+      </div>
+      <div class="acct" style="border:0">
+        <div class="acct-head"><b>Nintendo</b><span class="muted" style="font-size:12px">nicht möglich</span></div>
+        <p class="muted small" style="margin:0">Nintendo hat keine Trophäen/Erfolge und keine Schnittstelle für Spielzeiten. Fortschritt bitte per Checkliste pflegen.</p>
+      </div>
+      <button class="btn primary" data-act="sync" ${acc.psn.connected || acc.xbox.connected ? '' : 'disabled'}>${icon('refresh')}Jetzt abgleichen</button>`,
+
+    prices: `
+      <fieldset class="fs"><legend>Wert schätzen (eBay.de)</legend>
+        <p class="muted" style="font-size:12px;margin:0 0 10px">Schätzt den Wert aus aktuellen Sofortkauf-Angeboten in Deutschland (Median, Ausreißer entfernt). Kostenlos mit einem eBay-Entwicklerkonto.</p>
         <div class="fields">
-          ${field('Client-ID', input('igdbClientId', ig.clientId, { cls: 'mono', attrs: 'autocomplete="off" spellcheck="false"' }))}
-          ${field('Client-Secret', input('igdbSecret', '', { type: 'password', placeholder: ig.hasSecret ? '•••••• gespeichert' : '', attrs: 'autocomplete="off"' }))}
+          ${field('App ID (Client ID)', input('ebayAppId', acc.ebay.appId, { cls: 'mono', attrs: 'autocomplete="off" spellcheck="false"' }))}
+          ${field('Cert ID (Client Secret)', input('ebayCert', '', { type: 'password', placeholder: acc.ebay.hasCert ? '•••••• gespeichert' : '', attrs: 'autocomplete="off"' }))}
         </div>
         <div class="inline" style="margin-top:10px;align-items:center;gap:10px">
-          <button class="btn" data-act="igdb-save">Speichern &amp; testen</button>
-          <span data-igdb-status style="font-size:12px" class="${Online.configured ? 'ok' : 'muted'}">${Online.configured ? 'Eingerichtet' : 'Noch nicht eingerichtet'}</span>
+          <button class="btn" data-act="ebay-save">Speichern &amp; testen</button>
+          <span data-status="ebay">${statusLine(acc.ebay.configured, acc.ebay.configured ? 'Eingerichtet' : 'Noch nicht eingerichtet')}</span>
         </div>
-        <details class="howto">
-          <summary>So bekommst du die Zugangsdaten (ca. 3 Minuten)</summary>
-          <ol>
-            <li>Auf <a href="#" data-ext="https://dev.twitch.tv/console/apps">dev.twitch.tv/console/apps</a> mit einem Twitch-Konto anmelden. Dafür muss die Zwei-Faktor-Authentifizierung im Twitch-Konto aktiv sein.</li>
-            <li><b>Register Your Application</b> klicken. Name: frei wählbar, aber eindeutig (z. B. „Spielregal-Kris“) · OAuth Redirect URL: <code>http://localhost</code> · Kategorie: <i>Application Integration</i> · Client-Typ: <i>Confidential</i>.</li>
-            <li>Bei der neuen Anwendung auf <b>Manage</b>: die <b>Client-ID</b> kopieren, unter <b>New Secret</b> ein Secret erzeugen und kopieren.</li>
-            <li>Beides oben eintragen und <b>Speichern &amp; testen</b> klicken.</li>
-          </ol>
-        </details>
+        <details class="howto"><summary>So bekommst du die Zugangsdaten</summary><ol>
+          <li>Auf ${ext('https://developer.ebay.com/signin', 'developer.ebay.com')} kostenlos registrieren (Freischaltung dauert meist bis zu einem Werktag).</li>
+          <li>Unter <b>Application Keys</b> ein Keyset für <b>Production</b> erzeugen.</li>
+          <li><b>App ID (Client ID)</b> und <b>Cert ID (Client Secret)</b> kopieren und oben eintragen.</li>
+          <li>Falls eBay nach „Marketplace Account Deletion“ fragt: „Ich speichere keine eBay-Nutzerdaten“ (Opt-out) wählen.</li>
+        </ol></details>
       </fieldset>
-      <fieldset class="fs" style="margin-bottom:0"><legend>Daten</legend>
-        <div class="inline" style="flex-wrap:wrap">
-          <button class="btn" data-act="export">${icon('download')}Sicherung exportieren</button>
-          <button class="btn" data-act="import">${icon('upload')}Importieren</button>
-          <button class="btn ghost" data-act="folder">${icon('folder')}Datenordner</button>
+      <fieldset class="fs" style="margin-bottom:0"><legend>Partner-Links (optional)</legend>
+        <div class="fields">
+          ${field('Amazon-Partner-Tag', input('amazonTag', s.amazonTag || '', { placeholder: 'z. B. meinname-21', cls: 'mono' }))}
+          ${field('eBay-Partner-Kampagnen-ID', input('ebayCampaign', s.ebayCampaign || '', { placeholder: 'z. B. 5338…', cls: 'mono' }))}
         </div>
-        <p class="muted" style="font-size:12px;margin:10px 0 0">Die Sicherung ist eine JSON-Datei inklusive Cover. Beim Import werden nur fehlende Einträge ergänzt.<br>
-        Speicherort: <span style="user-select:text">${h(info.dataPath)}</span></p>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Werden automatisch an die Preisvergleich-Links angehängt.</p>
       </fieldset>`,
+
+    data: `
+      <div class="inline" style="flex-wrap:wrap">
+        <button class="btn" data-act="export">${icon('download')}Sicherung exportieren</button>
+        <button class="btn" data-act="import">${icon('upload')}Importieren</button>
+        <button class="btn ghost" data-act="folder">${icon('folder')}Datenordner</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">Die Sicherung ist eine JSON-Datei inklusive Cover. Beim Import werden nur fehlende Einträge ergänzt. Zugangsdaten (IGDB, Konten, eBay) sind nicht enthalten.<br>
+      Speicherort: <span style="user-select:text">${h(info.dataPath)}</span><br>Version ${h(info.version || '')}</p>`
+  };
+
+  openModal({
+    title: 'Einstellungen',
+    body: `<div class="tabs">${Object.entries(SETTINGS_TABS).map(([k, l]) => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
+      ${Object.entries(panes).map(([k, html]) => `<div class="tab-pane" data-pane="${k}" ${k === tab ? '' : 'hidden'}>${html}</div>`).join('')}`,
     footer: `<button class="btn primary" data-submit>Fertig</button>`,
     onMount(el) {
+      for (const b of $$('[data-tab]', el)) {
+        b.onclick = () => {
+          for (const x of $$('[data-tab]', el)) x.classList.toggle('on', x === b);
+          for (const p of $$('[data-pane]', el)) p.hidden = p.dataset.pane !== b.dataset.tab;
+        };
+      }
+      for (const a of $$('[data-ext]', el)) a.onclick = (e) => { e.preventDefault(); window.api.openExternal(a.dataset.ext); };
       const example = el.querySelector('[data-example]');
       const upd = () => { example.textContent = (el.querySelector('[name="prefixGame"]').value.trim() || 'SP') + '-0001'; };
       el.addEventListener('input', upd);
       upd();
-      el.querySelector('[data-act="export"]').onclick = () => App.exportBackup();
-      el.querySelector('[data-act="import"]').onclick = async () => { closeModal('ok'); await App.importBackup(); };
-      el.querySelector('[data-act="folder"]').onclick = () => window.api.openDataFolder();
-      for (const a of $$('[data-ext]', el)) a.onclick = (e) => { e.preventDefault(); window.api.openExternal(a.dataset.ext); };
-      const status = el.querySelector('[data-igdb-status]');
-      el.querySelector('[data-act="igdb-save"]').onclick = async () => {
+
+      // Allgemeine Werte sofort übernehmen
+      el.addEventListener('change', () => {
+        const f = readForm(el);
+        s.prefixGame = (f.prefixGame || '').trim() || 'SP';
+        s.prefixConsole = (f.prefixConsole || '').trim() || 'KO';
+        s.prefixAccessory = (f.prefixAccessory || '').trim() || 'ZB';
+        s.defaultInterval = Number(f.defaultInterval) || 0;
+        s.amazonTag = (f.amazonTag || '').trim();
+        s.ebayCampaign = (f.ebayCampaign || '').trim();
+        Store.save();
+      });
+
+      const setStatus = (key, cls, html) => {
+        const span = el.querySelector(`[data-status="${key}"]`);
+        span.innerHTML = `<span class="${cls}" style="font-size:12px">${html}</span>`;
+      };
+      const busy = (key) => setStatus(key, 'muted', '<span class="spinner"></span>Verbinde …');
+      const act = (name, fn) => { const b = el.querySelector(`[data-act="${name}"]`); if (b) b.onclick = fn; };
+
+      act('igdb-save', async () => {
         const clientId = el.querySelector('[name="igdbClientId"]').value.trim();
         const secret = el.querySelector('[name="igdbSecret"]').value.trim();
         const cfg = { clientId };
         if (secret) cfg.clientSecret = secret;
         await window.api.igdbSetConfig(cfg);
         await Online.refresh();
-        if (!Online.configured) { status.className = 'bad'; status.textContent = 'Client-ID und Client-Secret eintragen.'; return; }
-        status.className = 'muted';
-        status.innerHTML = '<span class="spinner"></span>Verbindung wird getestet …';
+        if (!Online.configured) return setStatus('igdb', 'bad', 'Client-ID und Client-Secret eintragen.');
+        busy('igdb');
         try {
           await Online.call('igdbTest');
-          status.className = 'ok';
-          status.textContent = '✓ Verbunden – Online-Daten sind aktiv.';
+          setStatus('igdb', 'ok', '✓ Verbunden – Online-Daten sind aktiv.');
           el.querySelector('[name="igdbSecret"]').value = '';
           el.querySelector('[name="igdbSecret"]').placeholder = '•••••• gespeichert';
           App.onOnlineReady();
-        } catch (err) {
-          status.className = 'bad';
-          status.textContent = err.message;
-        }
-      };
-      el.querySelector('[data-submit]').onclick = () => closeModal('ok');
+        } catch (err) { setStatus('igdb', 'bad', h(err.message)); }
+      });
+
+      act('psn-connect', async () => {
+        busy('psn');
+        try {
+          const st = await Online.call('psnConnect', el.querySelector('[name="npsso"]').value);
+          el.querySelector('[name="npsso"]').value = '';
+          setStatus('psn', 'ok', `✓ Verbunden${st.onlineId ? ' als ' + h(st.onlineId) : ''}`);
+          el.querySelector('[data-act="sync"]').disabled = false;
+        } catch (err) { setStatus('psn', 'bad', h(err.message)); }
+      });
+      act('psn-disconnect', async () => { await window.api.psnDisconnect(); setStatus('psn', 'muted', 'Getrennt'); });
+      act('xbox-connect', async () => {
+        busy('xbox');
+        try {
+          const st = await Online.call('xboxConnect', el.querySelector('[name="xblKey"]').value);
+          el.querySelector('[name="xblKey"]').value = '';
+          setStatus('xbox', 'ok', `✓ Verbunden${st.gamertag ? ' als ' + h(st.gamertag) : ''}`);
+          el.querySelector('[data-act="sync"]').disabled = false;
+        } catch (err) { setStatus('xbox', 'bad', h(err.message)); }
+      });
+      act('xbox-disconnect', async () => { await window.api.xboxDisconnect(); setStatus('xbox', 'muted', 'Getrennt'); });
+      act('sync', () => { closeModal('ok'); Accounts.openSync(); });
+
+      act('ebay-save', async () => {
+        const appId = el.querySelector('[name="ebayAppId"]').value.trim();
+        const cert = el.querySelector('[name="ebayCert"]').value.trim();
+        const cfg = { appId };
+        if (cert) cfg.certId = cert;
+        const st = await window.api.ebaySetConfig(cfg);
+        if (!st.configured) return setStatus('ebay', 'bad', 'App ID und Cert ID eintragen.');
+        busy('ebay');
+        try {
+          await Online.call('ebayTest');
+          setStatus('ebay', 'ok', '✓ Verbunden – Werte können geschätzt werden.');
+          el.querySelector('[name="ebayCert"]').value = '';
+          el.querySelector('[name="ebayCert"]').placeholder = '•••••• gespeichert';
+          Accounts.refresh();
+        } catch (err) { setStatus('ebay', 'bad', h(err.message)); }
+      });
+
+      act('export', () => App.exportBackup());
+      act('import', async () => { closeModal('ok'); await App.importBackup(); });
+      act('folder', () => window.api.openDataFolder());
+      el.querySelector('[data-submit]').onclick = () => { closeModal('ok'); Accounts.refresh().then(() => App.render()); };
     }
-  });
-  // Änderungen sofort übernehmen
-  const el = Modal.current.el;
-  el.addEventListener('change', () => {
-    const f = readForm(el);
-    s.prefixGame = (f.prefixGame || '').trim() || 'SP';
-    s.prefixConsole = (f.prefixConsole || '').trim() || 'KO';
-    s.defaultInterval = Number(f.defaultInterval) || 0;
-    Store.save();
   });
 }

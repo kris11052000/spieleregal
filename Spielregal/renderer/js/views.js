@@ -45,6 +45,7 @@ const Views = {
       ${nav('overview', 'Übersicht', 'overview')}
       ${nav('library', 'Bibliothek', 'library', games.length || '')}
       ${nav('consoles', 'Konsolen', 'gamepad', due ? `${due} fällig` : (Store.consoles.length || ''), due ? 'warn' : '')}
+      ${nav('accessories', 'Zubehör & Extras', 'headphones', Store.accessories.length || '')}
       ${nav('wishlist', 'Wunschliste', 'star', Store.wishlist.length || '')}
       ${nav('calendar', 'Release-Kalender', 'calendar')}
       ${nav('labels', 'Etiketten', 'qr')}
@@ -69,6 +70,11 @@ const Views = {
             <option value="">Alle Status</option>
             ${Object.entries(STATUS).map(([k, s]) => `<option value="${k}" ${state.statusFilter === k ? 'selected' : ''}>${s.label}</option>`).join('')}
           </select>
+          <select class="select" data-pref="formatFilter" title="Physisch / Digital">
+            <option value="">Physisch + Digital</option>
+            <option value="physical" ${state.formatFilter === 'physical' ? 'selected' : ''}>Nur physisch</option>
+            <option value="digital" ${state.formatFilter === 'digital' ? 'selected' : ''}>Nur digital</option>
+          </select>
           <select class="select" data-pref="sort" title="Sortieren nach">
             ${Object.entries(SORTS).map(([k, l]) => `<option value="${k}" ${state.sort === k ? 'selected' : ''}>↕ ${l}</option>`).join('')}
           </select>
@@ -76,7 +82,17 @@ const Views = {
             ${Object.entries(GROUPS).map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${k === 'off' ? l : '▤ ' + l}</option>`).join('')}
           </select>
           <div class="seg"><button class="${state.layout === 'grid' ? 'on' : ''}" data-layout="grid" title="Raster">${icon('grid')}</button><button class="${state.layout === 'list' ? 'on' : ''}" data-layout="list" title="Liste">${icon('list')}</button></div>
+          ${Accounts.anyConnected ? `<button class="icon-btn" data-action="sync" title="Trophäen & Erfolge abgleichen">${icon('star')}</button>` : ''}
           ${add('Spiel')}${inspectorBtn}`;
+      case 'accessories':
+        return `${title}${search('Name, Art, Hersteller …')}
+          <select class="select" data-pref="accFilter" title="Filtern">
+            <option value="">Alles</option>
+            <option value="hardware" ${state.accFilter === 'hardware' ? 'selected' : ''}>Nur Zubehör</option>
+            <option value="collectible" ${state.accFilter === 'collectible' ? 'selected' : ''}>Nur Sammlerstücke</option>
+            <optgroup label="Art">${Object.entries(ACCESSORY_TYPES).map(([k, t]) => `<option value="${k}" ${state.accFilter === k ? 'selected' : ''}>${t.label}</option>`).join('')}</optgroup>
+          </select>
+          ${add('Eintrag')}${inspectorBtn}`;
       case 'consoles':
         return `${title}${search('Name, Modell, Seriennummer …')}${add('Konsole')}${inspectorBtn}`;
       case 'wishlist':
@@ -113,6 +129,7 @@ const Views = {
     let list = Store.games;
     if (state.platform) list = list.filter((g) => g.platform === state.platform);
     if (state.statusFilter) list = list.filter((g) => g.status === state.statusFilter);
+    if (state.formatFilter) list = list.filter((g) => (g.format || 'physical') === state.formatFilter);
     if (q) list = list.filter((g) => Game.matches(g, q));
     return sortGames(list, state.sort);
   },
@@ -136,9 +153,12 @@ const Views = {
   },
 
   gameCard(g, state) {
-    const ed = g.edition !== 'standard' ? `<span class="pill solid corner-tr">${EDITION[g.edition].short}</span>` : '';
+    const tr = [g.edition !== 'standard' ? `<span class="pill solid">${EDITION[g.edition].short}</span>` : '',
+      g.format === 'digital' ? `<span class="pill solid">${icon('download')}DIGITAL</span>` : ''].join('');
+    const ed = tr ? `<span class="corner-tr stack">${tr}</span>` : '';
+    const plat = g.trophies && g.trophies.earned && g.trophies.earned.platinum ? '<span class="pill solid plat-pill" title="Platin erreicht">PLATIN</span>' : '';
     return `<div class="card ${state.selected.game === g.id ? 'sel' : ''}" data-item="game" data-id="${g.id}">
-      <div class="cover">${coverInner(g.cover, g.title, g.platform)}${ed}${g.usk ? `<span class="corner-tl">${uskBadge(g.usk)}</span>` : ''}</div>
+      <div class="cover">${coverInner(g.cover, g.title, g.platform)}${ed}${g.usk || plat ? `<span class="corner-tl stack row">${uskBadge(g.usk)}${plat}</span>` : ''}</div>
       <div class="meta"><div class="t" title="${h(g.title)}">${h(g.title)}</div><div class="s">${h(Game.subtitle(g)) || '&nbsp;'}</div>
       ${progressBar(g)}</div>
     </div>`;
@@ -151,7 +171,7 @@ const Views = {
       <div style="min-width:0"><div class="t">${h(g.title)} ${g.edition !== 'standard' ? `<span class="pill" style="--c:var(--accent)">${EDITION[g.edition].short}</span>` : ''}</div>
         <div class="s">${h([Game.subtitle(g), g.publisher].filter(Boolean).join(' · '))}</div></div>
       <div>${uskBadge(g.usk)}</div>
-      <div>${conditionPill(g.condition)}</div>
+      <div>${g.format === 'digital' ? '<span class="pill" style="--c:#3b82f6">DIGITAL</span>' : conditionPill(g.condition)}</div>
       <div class="st" style="color:${s.color}">${icon(s.icon)}<span style="color:var(--muted)">${s.label}</span></div>
       <div class="prog" style="--c:${s.color};margin:0"><div class="bar"><i style="width:${g.progress || 0}%"></i></div></div>
       <div class="inv">${h(g.inventory)}</div>
@@ -165,20 +185,24 @@ const Views = {
       <div>
         <h2>${h(g.title)}</h2>
         ${Game.subtitle(g) ? `<div class="subline">${h(Game.subtitle(g))}</div>` : ''}
-        <div class="pills" style="margin-top:9px">${uskBadge(g.usk)}${conditionPill(g.condition)}${g.edition !== 'standard' ? `<span class="pill" style="--c:var(--accent)">${EDITION[g.edition].short}</span>` : ''}</div>
+        <div class="pills" style="margin-top:9px">${uskBadge(g.usk)}${g.format === 'digital' ? `<span class="pill" style="--c:#3b82f6">DIGITAL${g.store ? ' · ' + h(g.store.toUpperCase()) : ''}</span>` : conditionPill(g.condition)}${g.edition !== 'standard' ? `<span class="pill" style="--c:var(--accent)">${EDITION[g.edition].short}</span>` : ''}</div>
       </div>
       <div class="panel">
         <h3>${icon('gamepad')}Spielstand</h3>
         <select class="select" style="width:100%" data-quick="status">
           ${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${g.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}
         </select>
-        <div class="range-row">${pctMarkup(g.progress, { quick: true, color: s.color })}</div>
+        <div class="range-row">${g.progressAuto ? `<div class="auto-note">${icon('check')}${fmt.percent(g.progress)} – berechnet aus der Checkliste</div>` : pctMarkup(g.progress, { quick: true, color: s.color })}</div>
       </div>
+      ${Panels.trophies(g)}
+      ${Panels.checklist(g)}
       <div class="panel"><h3>${icon('info')}Details</h3>
         <dl class="facts">${Game.facts(g).map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl>
       </div>
+      ${Panels.value(g, 'game')}
+      ${Panels.guides(g)}
       ${g.notes ? `<div class="panel"><h3>${icon('note')}Notizen</h3><div class="notes">${h(g.notes)}</div></div>` : ''}
-      ${this.labelPanel(labelFor(g, 'game'))}
+      ${g.format === 'digital' ? '' : this.labelPanel(labelFor(g, 'game'))}
       <button class="btn" data-action="online-fill" title="Fehlende Infos und Cover von IGDB holen">${icon('search')}Infos online ergänzen</button>
       <div class="insp-actions"><button class="btn" data-action="edit">${icon('edit')}Bearbeiten</button><button class="btn danger" data-action="delete" style="flex:none" title="Löschen">${icon('trash')}</button></div>
     </div>`;
@@ -243,7 +267,9 @@ const Views = {
           </div>`).join('')}</div>` : ''}
       </div>
       <div class="panel"><h3>${icon('info')}Details</h3>
-        <dl class="facts">${Consoles.facts(c).map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl></div>
+        <dl class="facts">${Consoles.facts(c).map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl>
+        ${c.summary ? `<p class="summary">${h(c.summary)}</p>` : ''}</div>
+      ${Panels.value(c, 'console')}
       ${c.notes ? `<div class="panel"><h3>${icon('note')}Notizen</h3><div class="notes">${h(c.notes)}</div></div>` : ''}
       ${this.labelPanel(labelFor(c, 'console'))}
       <div class="insp-actions"><button class="btn" data-action="edit">${icon('edit')}Bearbeiten</button><button class="btn danger" data-action="delete" style="flex:none" title="Löschen">${icon('trash')}</button></div>
@@ -290,7 +316,7 @@ const Views = {
         <div style="min-width:0"><div class="t">${h(w.title)}</div>
           <div class="s">${icon(kind.icon)}${h(kind.label)}${w.platform ? ` · ${h(w.platform)}` : ''}</div></div>
         <div class="num">${w.targetPrice != null ? `${fmt.euro(w.targetPrice)}<small>Zielpreis</small>` : ''}</div>
-        <div class="num">${w.releaseDate ? `${fmt.date(w.releaseDate)}<small style="${released ? 'color:var(--green)' : ''}">${released ? 'erschienen' : fmt.relative(w.releaseDate)}</small>` : '<span class="muted">Termin offen</span>'}</div>
+        <div class="num">${w.releaseDate ? `${fmt.date(w.releaseDate)}<small style="${released ? 'color:var(--green)' : ''}">${released ? 'bereits erhältlich' : fmt.relative(w.releaseDate)}</small>` : '<span class="muted">Termin offen</span>'}</div>
         <div class="flag" style="--c:${prio.color}" title="Priorität: ${prio.label}">${icon('flag')}</div>
         <div class="acts"><button class="btn small" data-action="acquire" title="${kind.collectible ? 'In die Sammlung übernehmen' : 'Von der Liste nehmen'}">${icon('cart')}Gekauft</button></div>
       </div>`;
@@ -301,13 +327,15 @@ const Views = {
     const kind = WISH_KIND[w.kind] || WISH_KIND.game;
     const prio = PRIORITY[w.priority] || PRIORITY.normal;
     const facts = [['Art', kind.label], ['Plattform', w.platform], ['Priorität', prio.label],
-      ['Erscheint', w.releaseDate ? `${fmt.date(w.releaseDate)} (${fmt.relative(w.releaseDate)})` : 'Termin offen'],
+      [w.releaseDate && w.releaseDate <= isoDate(today()) ? 'Erschienen' : 'Erscheint',
+        w.releaseDate ? (w.releaseDate <= isoDate(today()) ? `am ${fmt.date(w.releaseDate)} – bereits erhältlich` : `${fmt.date(w.releaseDate)} (${fmt.relative(w.releaseDate)})`) : 'Termin offen'],
       ['Zielpreis', fmt.euro(w.targetPrice)], ['Hinzugefügt', fmt.date(w.createdAt)]].filter(([, v]) => v);
     return `<div class="insp">
       <div class="cover hero">${coverInner(w.cover, w.title, w.platform)}</div>
       <div><h2>${h(w.title)}</h2><div class="subline">${h(kind.label)}${w.platform ? ' · ' + h(w.platform) : ''}</div></div>
       <div class="panel"><h3>${icon('info')}Details</h3><dl class="facts">${facts.map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl>
         ${w.link ? `<button class="btn small" style="margin-top:12px" data-action="open-link">${icon('link')}Link öffnen</button>` : ''}</div>
+      <div class="panel"><h3>${icon('euro')}Preisvergleich</h3>${linkChips(priceLinks(itemQuery(w, 'wish')))}</div>
       ${w.notes ? `<div class="panel"><h3>${icon('note')}Notizen</h3><div class="notes">${h(w.notes)}</div></div>` : ''}
       <button class="btn primary" data-action="acquire">${icon('cart')}${kind.collectible ? 'Gekauft – in Sammlung übernehmen' : 'Gekauft – von der Liste nehmen'}</button>
       <div class="insp-actions"><button class="btn" data-action="edit">${icon('edit')}Bearbeiten</button><button class="btn danger" data-action="delete" style="flex:none" title="Löschen">${icon('trash')}</button></div>
@@ -318,14 +346,14 @@ const Views = {
 
   allLabels(state) {
     const q = state.search.trim().toLowerCase();
-    const list = [...Store.games.map((g) => labelFor(g, 'game')), ...Store.consoles.map((c) => labelFor(c, 'console'))];
+    const list = [...Store.games.filter((g) => g.format !== 'digital').map((g) => labelFor(g, 'game')), ...Store.consoles.map((c) => labelFor(c, 'console')), ...Store.accessories.map((a) => labelFor(a, 'accessory'))];
     const filtered = q ? list.filter((l) => [l.title, l.inventory, l.subtitle].some((v) => v.toLowerCase().includes(q))) : list;
     return filtered.sort((a, b) => compareText(a.inventory, b.inventory));
   },
 
   labels(state) {
     const all = this.allLabels(state);
-    if (!Store.games.length && !Store.consoles.length) {
+    if (!Store.games.length && !Store.consoles.length && !Store.accessories.length) {
       return emptyState('qr', 'Noch nichts zu etikettieren', 'Sobald Spiele oder Konsolen erfasst sind, kannst du hier Etiketten mit QR-Code drucken.');
     }
     const chosen = all.filter((l) => state.labelSel.has(l.id));
@@ -361,7 +389,7 @@ const Views = {
     const active = games.filter((g) => g.status === 'active').sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     const done = games.filter((g) => g.status === 'completed').length;
     const due = consoles.filter((c) => Consoles.isDue(c)).length;
-    const total = [...games, ...consoles].reduce((s, x) => s + (Number(x.price) || 0), 0);
+    const cv = collectionValue();
     const todayIso = isoDate(today());
     const upcoming = wishes.filter((w) => w.releaseDate && w.releaseDate >= todayIso).sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
     const platforms = new Set(games.map((g) => g.platform).filter(Boolean)).size;
@@ -378,7 +406,18 @@ const Views = {
         ${tile('library', 'play', active.length, 'Am Spielen', `${games.length ? Math.round((done / games.length) * 100) : 0} % erledigt`)}
         ${tile('consoles', 'gamepad', consoles.length, 'Konsolen', due ? `<span class="warn">${due} Wartung fällig</span>` : 'alle gewartet')}
         ${tile('wishlist', 'star', wishes.length, 'Wunschliste', upcoming.length ? `${upcoming.length} mit Termin` : 'keine Termine')}
-        ${tile('', 'euro', fmt.euroRound(total), 'Kaufwert', 'Summe der Kaufpreise')}
+        ${tile('', 'euro', fmt.euroRound(cv.current), 'Sammlungswert', `Kaufwert ${fmt.euroRound(cv.purchase)}`)}
+      </div>
+      <div class="panel value-panel" style="margin-top:14px"><h3>${icon('euro')}Sammlungswert</h3>
+        <div class="value-row">
+          ${[['Spiele (physisch)', games.filter((g) => g.format !== 'digital')], ['Konsolen', consoles], ['Zubehör & Sammlerstücke', Store.accessories]]
+            .map(([l, list]) => `<div><small>${l}</small><b>${fmt.euroRound(list.reduce((s, x) => s + itemValue(x), 0))}</b><span class="muted" style="font-size:11px">${list.length} Eintr${list.length === 1 ? 'ag' : 'äge'}</span></div>`).join('')}
+          <div><small>Gesamt</small><b style="font-size:20px">${fmt.euroRound(cv.current)}</b><span class="${cv.current >= cv.purchase ? 'ok' : 'bad'}" style="font-size:11px">${cv.current >= cv.purchase ? '+' : ''}${fmt.euroRound(cv.current - cv.purchase)} ggü. Kaufpreis</span></div>
+        </div>
+        <div class="inline" style="margin-top:12px;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="btn small" data-action="value-all">${icon('search')}Alle Werte über eBay schätzen</button>
+          <span class="muted" style="font-size:12px">${cv.estimated} von ${cv.total} Einträgen haben einen aktuellen Wert, sonst zählt der Kaufpreis.</span>
+        </div>
       </div>
       <div class="two">
         <div class="panel"><h3>${icon('play')}Gerade am Spielen</h3>

@@ -88,6 +88,10 @@ const image = (id, size) => (id ? `https://images.igdb.com/igdb/image/upload/t_$
 const isoFromUnix = (s) => (s ? new Date(s * 1000).toISOString().slice(0, 10) : '');
 const quote = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const yearOf = (dates) => {
+  const ys = (dates || []).map((d) => d && d.date).filter(Boolean).map((s) => new Date(s * 1000).getUTCFullYear());
+  return ys.length ? Math.min(...ys) : null;
+};
 
 function createIgdb({ configFile, fetchImpl }) {
   let token = null;
@@ -228,7 +232,9 @@ function createIgdb({ configFile, fetchImpl }) {
     const q = String(text || '').trim();
     if (q.length < 2) return [];
     const rows = await query('platforms', 'platforms',
-      ['name', 'abbreviation', 'alternative_name', 'generation', 'platform_family.name', 'platform_logo.image_id', 'versions.name', 'versions.platform_logo.image_id'],
+      ['name', 'abbreviation', 'alternative_name', 'generation', 'summary', 'platform_family.name', 'platform_logo.image_id',
+        'versions.name', 'versions.summary', 'versions.platform_logo.image_id', 'versions.platform_version_release_dates.date',
+        'versions.main_manufacturer.company.name', 'versions.storage', 'versions.memory'],
       `search ${quote(q)}; limit 10;`);
     return rows.map((p) => {
       const logo = image(p.platform_logo && p.platform_logo.image_id, 'logo_med');
@@ -240,9 +246,18 @@ function createIgdb({ configFile, fetchImpl }) {
         family: (p.platform_family && p.platform_family.name) || '',
         generation: p.generation || null,
         logoUrl: logo,
+        summary: p.summary || '',
+        year: yearOf(((p.versions || []).find((v) => v && (v.name === 'Initial version' || v.name === p.name)) || {}).platform_version_release_dates),
         versions: (p.versions || [])
           .filter((v) => v && v.name && v.name !== p.name && v.name !== 'Initial version')
-          .map((v) => ({ name: v.name, logoUrl: image(v.platform_logo && v.platform_logo.image_id, 'logo_med') || logo }))
+          .map((v) => ({
+            name: v.name,
+            logoUrl: image(v.platform_logo && v.platform_logo.image_id, 'logo_med') || logo,
+            summary: v.summary || '',
+            year: yearOf(v.platform_version_release_dates),
+            manufacturer: (v.main_manufacturer && v.main_manufacturer.company && v.main_manufacturer.company.name) || '',
+            storage: v.storage || ''
+          }))
       };
     });
   }
