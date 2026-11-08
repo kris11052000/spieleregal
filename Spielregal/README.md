@@ -46,9 +46,11 @@ Systemvoraussetzung: macOS 11 oder neuer bzw. Windows 10/11.
 - **Release-Kalender:** Kommende Spiele, DLCs und Editionen für die gewählten Plattformen, plus eigene Termine aus der Wunschliste. Mit einem Klick landet ein Eintrag samt Cover auf der Wunschliste.
 - **Physisch / Digital:** Jedes Spiel ist physisch (mit Zustand, Inventar-Nr. und Etikett) oder digital (mit Store, z. B. PlayStation Store, Steam, Game Pass). In der Bibliothek lässt sich danach filtern.
 - **Zubehör & Extras:** Controller, Headsets, VR, amiibo, Figuren, Steelbooks, Artbooks, Soundtracks, Merch. Jeweils mit Zustand, Wert, Inventar-Nr. (`ZB-0001`), Etikett und optionaler Verknüpfung zu einem Spiel.
-- **Checklisten:** Eigene Punkte oder Vorlagen pro Spiel, auf Wunsch mit „Fortschritt aus Liste“. Trophäen und Erfolge lassen sich als Checkliste übernehmen.
+- **Checklisten:** Eigene Punkte oder Vorlagen pro Spiel, auf Wunsch mit „Fortschritt aus Liste“. Trophäen und Erfolge lassen sich als Checkliste übernehmen. Mit „Von Webseite“ wird eine Liste von einer Guide- oder Wiki-Seite importiert (Überschriften werden Gruppen, Listen und Tabellenzeilen werden Punkte), alternativ aus eingefügtem Text.
 - **Guides für 100 %:** Direktlinks zu PowerPyx, PSNProfiles bzw. TrueAchievements, Exophase, YouTube und einer Sammelobjekt-Suche.
-- **PlayStation & Xbox:** Trophäen bzw. Erfolge, Fortschritt und Spielzeit werden abgeglichen und den Spielen zugeordnet. Fehlende Titel lassen sich anlegen oder von Hand verknüpfen.
+- **PlayStation & Xbox:** Trophäen bzw. Erfolge, Fortschritt, Spielzeit und „zuletzt gespielt“ werden automatisch dem passenden Spiel zugeordnet – beim Start (höchstens alle 6 Stunden), beim Anlegen eines Spiels und über „Jetzt abgleichen“. Titel aus dem Konto, die noch fehlen, landen automatisch in der Bibliothek (abschaltbar unter Einstellungen → Konten). Eine falsche Zuordnung löst du per Rechtsklick → „Trophäen-Verknüpfung lösen“.
+- **Detailansicht:** Die Bereiche (Details, Spielstand, Trophäen, Checkliste, Wert, Guides, Notizen, Etikett) lassen sich am Griff verschieben und einklappen – getrennt für Spiele, Konsolen und Zubehör. Zurücksetzen unter Einstellungen → Allgemein.
+- **Erscheinungsdatum:** Das genaue Datum wird gespeichert; Karten und Listen zeigen nur das Jahr, die Detailansicht das ganze Datum.
 - **Sammlungswert:** Aktueller Wert pro Eintrag, manuell oder über „Wert über eBay schätzen“. Die Übersicht zeigt den Gesamtwert und den Vergleich zum Kaufpreis.
 - **Preisvergleich:** Links zu idealo, Amazon, eBay (inkl. verkaufter Angebote), Kleinanzeigen und PriceCharting, optional mit eigenem Partner-Tag.
 - **Übersicht:** Kennzahlen, Sammlungswert, aktuelle Spiele, Wartungsstatus, kommende Termine und Verteilung nach Plattform.

@@ -114,7 +114,7 @@ const Store = {
   empty() {
     return {
       version: 1,
-      settings: { prefixGame: 'SP', prefixConsole: 'KO', prefixAccessory: 'ZB', defaultInterval: 6, amazonTag: '', ebayCampaign: '' },
+      settings: { prefixGame: 'SP', prefixConsole: 'KO', prefixAccessory: 'ZB', defaultInterval: 6, amazonTag: '', ebayCampaign: '', accountsAutoAdd: true, accountsAutoFormat: 'digital' },
       games: [], consoles: [], wishlist: [], accessories: [], sync: {}
     };
   },
@@ -223,7 +223,7 @@ function newGame(fields = {}) {
   return {
     id: uid(), title: '', platform: '', publisher: '', developer: '', genre: '', series: '',
     year: null, usk: '', edition: 'standard', editionNote: '', condition: 'cib', format: 'physical', store: '',
-    status: 'backlog', progress: 0, progressAuto: false, playtime: null, inventory: '', barcode: '',
+    releaseDate: '', status: 'backlog', progress: 0, progressAuto: false, playtime: null, lastPlayed: '', inventory: '', barcode: '',
     price: null, value: null, valueDate: '', valueNote: '', purchaseDate: '', notes: '', cover: '',
     checklist: [], trophies: null, createdAt: now, updatedAt: now, ...fields
   };
@@ -286,7 +286,7 @@ const Game = {
     add('Hersteller', manufacturerFor(g.platform));
     add('Publisher', g.publisher);
     add('Entwickler', g.developer);
-    add('Erscheinungsjahr', g.year);
+    add('Erschienen', g.releaseDate ? fmt.date(g.releaseDate) : g.year);
     add('Genre', g.genre);
     add('Reihe', g.series);
     if (g.edition !== 'standard') add('Edition', EDITION[g.edition].label + (g.editionNote ? ' – ' + g.editionNote : ''));
@@ -297,6 +297,7 @@ const Game = {
     add('Kaufpreis', fmt.euro(g.price));
     add('Kaufdatum', fmt.date(g.purchaseDate));
     if (g.playtime) add('Spielzeit', fmt.num(g.playtime) + ' Std.');
+    if (g.lastPlayed) add('Zuletzt gespielt', fmt.date(g.lastPlayed));
     return f;
   }
 };

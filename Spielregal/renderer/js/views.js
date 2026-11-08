@@ -16,6 +16,16 @@ function conditionPill(key) {
   return c ? `<span class="pill" style="--c:${c.color}">${c.short}</span>` : '';
 }
 
+/** Kleine Abzeichen unter dem Titel (statt über dem Cover) */
+function gameBadges(g) {
+  const out = [];
+  if (g.usk) out.push(`<span class="usk sm usk-${h(g.usk)}" title="USK ${h(g.usk)}">${h(g.usk)}</span>`);
+  if (g.format === 'digital') out.push(`<span class="badge" style="--c:#3b82f6" title="${h(g.store || 'Digital')}">${icon('download')}Digital</span>`);
+  if (g.edition && g.edition !== 'standard') out.push(`<span class="badge" style="--c:var(--accent)">${h(EDITION[g.edition].label)}</span>`);
+  if (g.trophies && g.trophies.earned && g.trophies.earned.platinum) out.push(`<span class="badge" style="--c:#3a8fd0" title="Platin erreicht">${icon('star')}Platin</span>`);
+  return out.join('');
+}
+
 function progressBar(g) {
   const s = STATUS[g.status] || STATUS.backlog;
   return `<div class="prog" style="--c:${s.color}" title="${h(s.label)}">${icon(s.icon)}
@@ -153,13 +163,10 @@ const Views = {
   },
 
   gameCard(g, state) {
-    const tr = [g.edition !== 'standard' ? `<span class="pill solid">${EDITION[g.edition].short}</span>` : '',
-      g.format === 'digital' ? `<span class="pill solid">${icon('download')}DIGITAL</span>` : ''].join('');
-    const ed = tr ? `<span class="corner-tr stack">${tr}</span>` : '';
-    const plat = g.trophies && g.trophies.earned && g.trophies.earned.platinum ? '<span class="pill solid plat-pill" title="Platin erreicht">PLATIN</span>' : '';
     return `<div class="card ${state.selected.game === g.id ? 'sel' : ''}" data-item="game" data-id="${g.id}">
-      <div class="cover">${coverInner(g.cover, g.title, g.platform)}${ed}${g.usk || plat ? `<span class="corner-tl stack row">${uskBadge(g.usk)}${plat}</span>` : ''}</div>
+      <div class="cover">${coverInner(g.cover, g.title, g.platform)}</div>
       <div class="meta"><div class="t" title="${h(g.title)}">${h(g.title)}</div><div class="s">${h(Game.subtitle(g)) || '&nbsp;'}</div>
+      <div class="badges">${gameBadges(g)}</div>
       ${progressBar(g)}</div>
     </div>`;
   },
@@ -175,36 +182,6 @@ const Views = {
       <div class="st" style="color:${s.color}">${icon(s.icon)}<span style="color:var(--muted)">${s.label}</span></div>
       <div class="prog" style="--c:${s.color};margin:0"><div class="bar"><i style="width:${g.progress || 0}%"></i></div></div>
       <div class="inv">${h(g.inventory)}</div>
-    </div>`;
-  },
-
-  gameInspector(g) {
-    const s = STATUS[g.status] || STATUS.backlog;
-    return `<div class="insp">
-      <div class="cover hero">${coverInner(g.cover, g.title, g.platform)}</div>
-      <div>
-        <h2>${h(g.title)}</h2>
-        ${Game.subtitle(g) ? `<div class="subline">${h(Game.subtitle(g))}</div>` : ''}
-        <div class="pills" style="margin-top:9px">${uskBadge(g.usk)}${g.format === 'digital' ? `<span class="pill" style="--c:#3b82f6">DIGITAL${g.store ? ' · ' + h(g.store.toUpperCase()) : ''}</span>` : conditionPill(g.condition)}${g.edition !== 'standard' ? `<span class="pill" style="--c:var(--accent)">${EDITION[g.edition].short}</span>` : ''}</div>
-      </div>
-      <div class="panel">
-        <h3>${icon('gamepad')}Spielstand</h3>
-        <select class="select" style="width:100%" data-quick="status">
-          ${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${g.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}
-        </select>
-        <div class="range-row">${g.progressAuto ? `<div class="auto-note">${icon('check')}${fmt.percent(g.progress)} – berechnet aus der Checkliste</div>` : pctMarkup(g.progress, { quick: true, color: s.color })}</div>
-      </div>
-      ${Panels.trophies(g)}
-      ${Panels.checklist(g)}
-      <div class="panel"><h3>${icon('info')}Details</h3>
-        <dl class="facts">${Game.facts(g).map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl>
-      </div>
-      ${Panels.value(g, 'game')}
-      ${Panels.guides(g)}
-      ${g.notes ? `<div class="panel"><h3>${icon('note')}Notizen</h3><div class="notes">${h(g.notes)}</div></div>` : ''}
-      ${g.format === 'digital' ? '' : this.labelPanel(labelFor(g, 'game'))}
-      <button class="btn" data-action="online-fill" title="Fehlende Infos und Cover von IGDB holen">${icon('search')}Infos online ergänzen</button>
-      <div class="insp-actions"><button class="btn" data-action="edit">${icon('edit')}Bearbeiten</button><button class="btn danger" data-action="delete" style="flex:none" title="Löschen">${icon('trash')}</button></div>
     </div>`;
   },
 
@@ -243,37 +220,6 @@ const Views = {
           <div class="maint-line ${due ? 'warn' : ''}">${icon(due ? 'alert' : 'wrench')}<span>${h(Consoles.statusText(c))}</span></div>
         </div></div>`;
     }).join('')}</div></div>`;
-  },
-
-  consoleInspector(c) {
-    const due = Consoles.isDue(c);
-    const last = Consoles.lastMaintenance(c);
-    const logs = [...(c.maintenance || [])].sort((a, b) => b.date.localeCompare(a.date));
-    return `<div class="insp">
-      <div class="cover hero landscape">${coverInner(c.cover, c.name, manufacturerFor(c.platform || c.name))}</div>
-      <div><h2>${h(c.name)}</h2>${Consoles.subtitle(c) ? `<div class="subline">${h(Consoles.subtitle(c))}</div>` : ''}</div>
-      <div class="panel">
-        <h3>${icon('wrench')}Wartung</h3>
-        <div class="state ${due ? 'warn' : 'ok'}">${icon(due ? 'alert' : 'seal')}
-          <div><b style="color:var(--text)">${h(Consoles.statusText(c))}</b>${last ? `<small>Zuletzt am ${fmt.date(last)}</small>` : ''}</div></div>
-        <button class="btn small" style="margin-top:10px" data-action="add-maintenance">${icon('plus')}Wartung eintragen</button>
-        ${logs.length ? `<div class="timeline">${logs.map((m) => `
-          <div class="tl" data-maint="${m.id}">
-            <div class="dot"></div>
-            <div><div class="d">${fmt.date(m.date)}</div>
-              ${m.kinds.length ? `<div class="pills">${m.kinds.map((k) => `<span class="pill" style="--c:var(--accent)">${h(MAINTENANCE[k]?.short || k)}</span>`).join('')}</div>` : ''}
-              ${m.notes ? `<div class="n">${h(m.notes)}</div>` : ''}</div>
-            <div class="acts"><button class="icon-btn" data-action="edit-maintenance" title="Bearbeiten">${icon('edit')}</button></div>
-          </div>`).join('')}</div>` : ''}
-      </div>
-      <div class="panel"><h3>${icon('info')}Details</h3>
-        <dl class="facts">${Consoles.facts(c).map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl>
-        ${c.summary ? `<p class="summary">${h(c.summary)}</p>` : ''}</div>
-      ${Panels.value(c, 'console')}
-      ${c.notes ? `<div class="panel"><h3>${icon('note')}Notizen</h3><div class="notes">${h(c.notes)}</div></div>` : ''}
-      ${this.labelPanel(labelFor(c, 'console'))}
-      <div class="insp-actions"><button class="btn" data-action="edit">${icon('edit')}Bearbeiten</button><button class="btn danger" data-action="delete" style="flex:none" title="Löschen">${icon('trash')}</button></div>
-    </div>`;
   },
 
   // ---------- Wunschliste ----------

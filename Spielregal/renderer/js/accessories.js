@@ -34,20 +34,6 @@ Views.accessories = function (state) {
       </div>`).join('')}</div></div>`).join('')}</div>`;
 };
 
-Views.accessoryInspector = function (a) {
-  return `<div class="insp">
-    <div class="cover hero square">${coverInner(a.cover, a.name, ACCESSORY_TYPES[a.type]?.label || '')}</div>
-    <div><h2>${h(a.name)}</h2><div class="subline">${h(Accessories.subtitle(a))}</div>
-      <div class="pills" style="margin-top:9px">${conditionPill(a.condition)}</div></div>
-    <div class="panel"><h3>${icon('info')}Details</h3>
-      <dl class="facts">${Accessories.facts(a).map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl></div>
-    ${Panels.value(a, 'accessory')}
-    ${a.notes ? `<div class="panel"><h3>${icon('note')}Notizen</h3><div class="notes">${h(a.notes)}</div></div>` : ''}
-    ${this.labelPanel(labelFor(a, 'accessory'))}
-    <div class="insp-actions"><button class="btn" data-action="edit">${icon('edit')}Bearbeiten</button><button class="btn danger" data-action="delete" style="flex:none" title="Löschen">${icon('trash')}</button></div>
-  </div>`;
-};
-
 function openAccessoryEditor(existing, defaults = {}) {
   const isNew = !existing;
   const a = existing ? { ...existing } : newAccessory({ inventory: Store.nextInventory('accessory'), ...defaults });

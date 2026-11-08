@@ -323,6 +323,21 @@ function registerIpc() {
   ipcMain.handle('ebay:setConfig', (_e, cfg) => ebay.saveConfig(cfg || {}));
   ipcMain.handle('ebay:test', wrap(() => ebay.test()));
   ipcMain.handle('ebay:estimate', wrap((q) => ebay.estimate(q || {})));
+  ipcMain.handle('web:fetch', wrap(async (url) => {
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) throw new Error('Ungültiger Link');
+    let res;
+    try {
+      res = await fetchImpl(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Spielregal/0.4', 'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8', Accept: 'text/html' } });
+    } catch (_) {
+      throw new Error('Seite konnte nicht geladen werden – Link und Internetverbindung prüfen.');
+    }
+    if (!res.ok) throw new Error('Die Seite antwortet mit Fehler ' + res.status + '.');
+    const type = res.headers.get('content-type') || '';
+    if (!/html|xml|text/i.test(type)) throw new Error('Unter diesem Link liegt keine Webseite.');
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 6 * 1024 * 1024) throw new Error('Die Seite ist zu groß.');
+    return { html: buf.toString('utf8'), url: res.url || url };
+  }));
   ipcMain.handle('wiki:image', wrap((names) => wikipediaImage(fetchImpl, Array.isArray(names) ? names.slice(0, 4) : [])));
 
   ipcMain.handle('cover:fromUrl', wrap(async (url) => {

@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   ebayTest: () => ipcRenderer.invoke('ebay:test'),
   ebayEstimate: (q) => ipcRenderer.invoke('ebay:estimate', q),
   wikiImage: (names) => ipcRenderer.invoke('wiki:image', names),
+  webFetch: (url) => ipcRenderer.invoke('web:fetch', url),
   platform: process.platform,
   hasNativeMenu: true
 });

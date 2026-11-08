@@ -29,6 +29,7 @@ const App = {
     this.bind();
     this.render();
     window.api.onMenu((cmd) => this.command(cmd));
+    setTimeout(() => Accounts.autoSync().catch(() => {}), 1500);
   },
 
   loadPrefs() {
@@ -362,6 +363,11 @@ const App = {
           if (k === 'completed') item.progress = 100;
           item.updatedAt = new Date().toISOString();
           Store.save(); this.render();
+        }]);
+      }
+      if (item.trophies) {
+        entries.push(['Trophäen-Verknüpfung lösen', 'xcircle', () => {
+          item.trophies = null; Store.upsert('games', item); toast('Verknüpfung gelöst'); this.render();
         }]);
       }
       entries.push('-');

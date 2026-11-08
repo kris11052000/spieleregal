@@ -196,6 +196,7 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
       ${field('Publisher', input('publisher', g.publisher))}
       ${field('Entwickler', input('developer', g.developer))}
       ${field('Erscheinungsjahr', input('year', g.year ?? '', { placeholder: 'JJJJ', attrs: 'inputmode="numeric" maxlength="4"' }))}
+      ${field('Genaues Erscheinungsdatum', input('releaseDate', g.releaseDate || '', { type: 'date' }))}
       ${field('Alterseinstufung', select('usk', USK, g.usk))}
     </div></fieldset>
     <fieldset class="fs"><legend>Spielstand</legend><div class="fields">
@@ -205,7 +206,8 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
       <div class="field"><span>Fortschritt</span>
         ${pctMarkup(g.progress, { name: 'progress' })}
       </div>
-      ${field('Spielzeit (Std.)', input('playtime', g.playtime ?? '', { placeholder: 'optional', attrs: 'inputmode="decimal"' }))}
+      ${field('Spielzeit (Std.)', input('playtime', g.playtime != null ? fmt.inputNumber(g.playtime) : '', { placeholder: 'optional', attrs: 'inputmode="decimal"' }))}
+      ${field('Zuletzt gespielt', input('lastPlayed', (g.lastPlayed || '').slice(0, 10), { type: 'date' }))}
     </div></fieldset>
     <fieldset class="fs"><legend>Sammlung</legend><div class="fields">
       <div class="field full"><span>Format</span><div class="seg-field">
@@ -274,7 +276,7 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
         async onPick(r) {
           setv('title', r.title);
           let filled = 0;
-          for (const [n, v] of [['publisher', r.publisher], ['developer', r.developer], ['genre', r.genre], ['series', r.series], ['year', r.year ?? '']]) {
+          for (const [n, v] of [['publisher', r.publisher], ['developer', r.developer], ['genre', r.genre], ['series', r.series], ['year', r.year ?? ''], ['releaseDate', r.releaseDate || '']]) {
             if (v && !val(n).trim()) { setv(n, v); filled++; }
           }
           if (r.usk && !val('usk')) { setv('usk', r.usk); filled++; }
@@ -300,7 +302,8 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
         Object.assign(g, {
           title: f.title.trim(), platform: f.platform.trim(), publisher: f.publisher.trim(),
           developer: f.developer.trim(), genre: f.genre.trim(), series: f.series.trim(),
-          year: parseIntOrNull(f.year), usk: f.usk, edition: f.edition,
+          year: f.releaseDate ? Number(f.releaseDate.slice(0, 4)) : parseIntOrNull(f.year), releaseDate: f.releaseDate || '',
+          lastPlayed: f.lastPlayed || '', usk: f.usk, edition: f.edition,
           editionNote: f.edition === 'standard' ? '' : f.editionNote.trim(),
           status: f.status || 'backlog', progress: clampPct(parseNumber(f.progress)) ?? 0,
           playtime: parseNumber(f.playtime), condition: f.condition,
@@ -317,6 +320,7 @@ function openGameEditor(existing, defaults = {}, opts = {}) {
           g.valueNote = newValue != null ? 'Manuell eingetragen' : '';
         }
         saved = true;
+        if (!g.trophies) Accounts.autoLink(g);
         Store.upsert('games', g);
         cover.commit();
         closeModal('ok');
@@ -605,7 +609,11 @@ async function openSettings(tab = 'general') {
       </fieldset>
       <fieldset class="fs" style="margin-bottom:0"><legend>Wartung</legend><div class="fields">
         ${field('Standard-Erinnerung für neue Konsolen', select('defaultInterval', { 0: 'Keine', 3: 'Alle 3 Monate', 6: 'Alle 6 Monate', 12: 'Jährlich' }, s.defaultInterval), { full: true })}
-      </div></fieldset>`,
+      </div></fieldset>
+      <fieldset class="fs" style="margin:14px 0 0"><legend>Detailansicht</legend>
+        <p class="muted" style="font-size:12px;margin:0 0 10px">Bereiche lassen sich in der Detailansicht am Griff ziehen und per Klick auf die Überschrift einklappen.</p>
+        <button class="btn" data-act="panels-reset">${icon('refresh')}Reihenfolge zurücksetzen</button>
+      </fieldset>`,
 
     igdb: `
       <p class="muted" style="font-size:12px;margin:0 0 12px">Für Spiel- und Konsolen-Infos, Cover und den Release-Kalender. Kostenlos über einen Twitch-Entwicklerzugang.</p>
@@ -656,6 +664,13 @@ async function openSettings(tab = 'general') {
         <div class="acct-head"><b>Nintendo</b><span class="muted" style="font-size:12px">nicht möglich</span></div>
         <p class="muted small" style="margin:0">Nintendo hat keine Trophäen/Erfolge und keine Schnittstelle für Spielzeiten. Fortschritt bitte per Checkliste pflegen.</p>
       </div>
+      <fieldset class="fs" style="margin:6px 0 14px"><legend>Abgleich</legend>
+        <label class="toggle"><input type="checkbox" name="accountsAutoAdd" ${s.accountsAutoAdd ? 'checked' : ''}><span>Neue Spiele aus dem Konto automatisch zur Bibliothek hinzufügen</span></label>
+        <div class="fields" style="margin-top:10px">
+          ${field('Automatisch hinzugefügt als', select('accountsAutoFormat', { digital: 'Digital', physical: 'Physisch' }, s.accountsAutoFormat || 'digital'))}
+        </div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Trophäen, Spielzeit und „zuletzt gespielt“ werden automatisch dem passenden Spiel zugeordnet – beim Start (alle 6 Std.) und beim Anlegen eines Spiels.</p>
+      </fieldset>
       <button class="btn primary" data-act="sync" ${acc.psn.connected || acc.xbox.connected ? '' : 'disabled'}>${icon('refresh')}Jetzt abgleichen</button>`,
 
     prices: `
@@ -721,6 +736,8 @@ async function openSettings(tab = 'general') {
         s.defaultInterval = Number(f.defaultInterval) || 0;
         s.amazonTag = (f.amazonTag || '').trim();
         s.ebayCampaign = (f.ebayCampaign || '').trim();
+        s.accountsAutoAdd = !!(f.accountsAutoAdd && f.accountsAutoAdd.length);
+        s.accountsAutoFormat = f.accountsAutoFormat || 'digital';
         Store.save();
       });
 
@@ -788,6 +805,7 @@ async function openSettings(tab = 'general') {
         } catch (err) { setStatus('ebay', 'bad', h(err.message)); }
       });
 
+      act('panels-reset', () => { PanelSystem.reset(); toast('Reihenfolge zurückgesetzt'); });
       act('export', () => App.exportBackup());
       act('import', async () => { closeModal('ok'); await App.importBackup(); });
       act('folder', () => window.api.openDataFolder());
