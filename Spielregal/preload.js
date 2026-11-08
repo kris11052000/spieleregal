@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld('api', {
   importBackup: () => ipcRenderer.invoke('backup:import'),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   onMenu: (fn) => ipcRenderer.on('menu', (_e, cmd) => fn(cmd)),
+  igdbGetConfig: () => ipcRenderer.invoke('igdb:getConfig'),
+  igdbSetConfig: (cfg) => ipcRenderer.invoke('igdb:setConfig', cfg),
+  igdbTest: () => ipcRenderer.invoke('igdb:test'),
+  igdbSearchGames: (q) => ipcRenderer.invoke('igdb:searchGames', q),
+  igdbSearchPlatforms: (q) => ipcRenderer.invoke('igdb:searchPlatforms', q),
+  igdbReleases: (opts) => ipcRenderer.invoke('igdb:releases', opts),
+  coverFromUrl: (url) => ipcRenderer.invoke('cover:fromUrl', url),
   platform: process.platform,
   hasNativeMenu: true
 });

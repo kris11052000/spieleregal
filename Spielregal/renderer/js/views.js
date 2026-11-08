@@ -20,7 +20,7 @@ function progressBar(g) {
   const s = STATUS[g.status] || STATUS.backlog;
   return `<div class="prog" style="--c:${s.color}" title="${h(s.label)}">${icon(s.icon)}
     <div class="bar"><i style="width:${Math.max(0, Math.min(100, g.progress || 0))}%"></i></div>
-    <span class="pc">${Math.round(g.progress || 0)} %</span></div>`;
+    <span class="pc">${fmt.percent(g.progress)}</span></div>`;
 }
 
 function emptyState(iconName, title, text, actions = '') {
@@ -46,6 +46,7 @@ const Views = {
       ${nav('library', 'Bibliothek', 'library', games.length || '')}
       ${nav('consoles', 'Konsolen', 'gamepad', due ? `${due} fällig` : (Store.consoles.length || ''), due ? 'warn' : '')}
       ${nav('wishlist', 'Wunschliste', 'star', Store.wishlist.length || '')}
+      ${nav('calendar', 'Release-Kalender', 'calendar')}
       ${nav('labels', 'Etiketten', 'qr')}
       ${plist.length ? `<div class="side-section"><div class="side-title">Plattformen</div>
         ${plist.map(([p, n]) => `<button class="nav ${state.view === 'library' && state.platform === p ? 'active' : ''}" data-platform="${h(p)}">${icon('disc')}<span class="label">${h(p)}</span><span class="count">${n}</span></button>`).join('')}
@@ -89,6 +90,12 @@ const Views = {
               .map(([k, l]) => `<option value="${k}" ${state.wishSort === k ? 'selected' : ''}>↕ ${l}</option>`).join('')}
           </select>
           ${add('Wunsch')}${inspectorBtn}`;
+      case 'calendar':
+        return `${title}${search('Titel suchen …')}
+          <select class="select" data-pref="calRange" title="Zeitraum">
+            ${Object.entries(CAL_RANGES).map(([k, l]) => `<option value="${k}" ${String(state.calRange) === k ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <button class="icon-btn" data-action="cal-refresh" title="Neu laden" ${Online.configured ? '' : 'disabled'}>${icon('refresh')}</button>`;
       case 'labels':
         return `${title}${search('Titel oder Inventar-Nr.')}
           <div class="seg text"><button class="${state.labelLayout === 'sheet' ? 'on' : ''}" data-label-layout="sheet">A4-Bogen 3 × 8</button><button class="${state.labelLayout === 'single' ? 'on' : ''}" data-label-layout="single">Einzeln 60 × 30 mm</button></div>
@@ -165,13 +172,14 @@ const Views = {
         <select class="select" style="width:100%" data-quick="status">
           ${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${g.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}
         </select>
-        <div class="range-row"><input type="range" min="0" max="100" step="5" value="${g.progress || 0}" data-quick="progress" style="accent-color:${s.color}"><output>${Math.round(g.progress || 0)} %</output></div>
+        <div class="range-row">${pctMarkup(g.progress, { quick: true, color: s.color })}</div>
       </div>
       <div class="panel"><h3>${icon('info')}Details</h3>
         <dl class="facts">${Game.facts(g).map(([l, v]) => `<dt>${h(l)}</dt><dd>${h(v)}</dd>`).join('')}</dl>
       </div>
       ${g.notes ? `<div class="panel"><h3>${icon('note')}Notizen</h3><div class="notes">${h(g.notes)}</div></div>` : ''}
       ${this.labelPanel(labelFor(g, 'game'))}
+      <button class="btn" data-action="online-fill" title="Fehlende Infos und Cover von IGDB holen">${icon('search')}Infos online ergänzen</button>
       <div class="insp-actions"><button class="btn" data-action="edit">${icon('edit')}Bearbeiten</button><button class="btn danger" data-action="delete" style="flex:none" title="Löschen">${icon('trash')}</button></div>
     </div>`;
   },

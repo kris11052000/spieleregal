@@ -146,7 +146,7 @@ function mountCoverField(root, state) {
     e.preventDefault();
     set(await window.api.coverFromDataUrl(await fileToDataUrl(file)));
   });
-  return refresh;
+  return { state, refresh, set, loading: (on) => box.classList.toggle('loading', !!on) };
 }
 
 function inventoryControl(type, value, excludeId) {
@@ -174,7 +174,7 @@ function mountInventory(root, type, excludeId, onChange) {
 
 // ---------- Spiel ----------
 
-function openGameEditor(existing, defaults = {}) {
+function openGameEditor(existing, defaults = {}, opts = {}) {
   const isNew = !existing;
   const g = existing ? { ...existing } : newGame({ inventory: Store.nextInventory('game'), ...defaults });
   let root;
@@ -184,8 +184,8 @@ function openGameEditor(existing, defaults = {}) {
   const body = `
     ${coverFieldMarkup(cover)}
     <fieldset class="fs"><legend>Allgemein</legend><div class="fields">
-      ${field('Titel', input('title', g.title, { placeholder: 'Pflichtfeld', attrs: 'autofocus' }), { full: true })}
-      ${field('Plattform', input('platform', g.platform, { placeholder: 'z. B. PlayStation 5', attrs: 'list="platform-list"' }))}
+      ${field('Titel', `<div class="inline">${input('title', g.title, { placeholder: 'Pflichtfeld – Vorschläge erscheinen beim Tippen', attrs: 'autofocus autocomplete="off"' })}${onlineButton()}</div>`, { full: true, hint: '<div class="sg-hint" data-online-hint></div>' })}
+      ${field('Plattform', input('platform', g.platform, { placeholder: 'z. B. PlayStation 5', attrs: 'list="platform-list"' }), { hint: '<div class="chips" data-platform-chips></div>' })}
       ${field('Edition', select('edition', EDITION, g.edition))}
       ${field('Inhalt der Edition', input('editionNote', g.editionNote, { placeholder: 'z. B. Steelbook, Artbook, Figur' }), { full: true })}
       ${field('Spielereihe', input('series', g.series, { placeholder: 'z. B. Metro' }))}
@@ -202,7 +202,7 @@ function openGameEditor(existing, defaults = {}) {
         ${Object.entries(STATUS).map(([k, s]) => `<label><input type="radio" name="status" value="${k}" ${g.status === k ? 'checked' : ''}><span>${icon(s.icon)}${s.label}</span></label>`).join('')}
       </div></div>
       <div class="field"><span>Fortschritt</span>
-        <div class="range-row" style="margin:0;height:30px"><input type="range" name="progress" min="0" max="100" step="5" value="${g.progress}"><output>${fmt.percent(g.progress)}</output></div>
+        ${pctMarkup(g.progress, { name: 'progress' })}
       </div>
       ${field('Spielzeit (Std.)', input('playtime', g.playtime ?? '', { placeholder: 'optional', attrs: 'inputmode="decimal"' }))}
     </div></fieldset>
@@ -228,11 +228,13 @@ function openGameEditor(existing, defaults = {}) {
              <button class="btn primary" data-submit>Sichern</button>`,
     onMount(el) {
       root = el;
-      const refreshCover = mountCoverField(el, cover);
+      const coverField = mountCoverField(el, cover);
+      const refreshCover = coverField.refresh;
       const submit = el.querySelector('[data-submit]');
       const noteField = el.querySelector('[name="editionNote"]').closest('.field');
-      const progress = el.querySelector('[name="progress"]');
-      const output = progress.nextElementSibling;
+      const progress = el.querySelector('[data-pct="range"]');
+      const progressText = el.querySelector('[name="progress"]');
+      const setProgress = (v) => { progress.value = v; progressText.value = fmt.num(v); };
       let inventoryOk = () => true;
       const validate = () => { submit.disabled = !val('title').trim() || !inventoryOk(); };
       inventoryOk = mountInventory(el, 'game', g.id, validate);
@@ -240,17 +242,42 @@ function openGameEditor(existing, defaults = {}) {
       const syncEdition = () => { noteField.hidden = val('edition') === 'standard'; };
       el.querySelector('[name="edition"]').onchange = syncEdition;
       syncEdition();
-      progress.oninput = () => { output.textContent = fmt.percent(progress.value); };
       for (const r of $$('[name="status"]', el)) {
         r.onchange = () => {
-          if (r.value === 'completed') progress.value = 100;
-          if (r.value === 'backlog') progress.value = 0;
-          output.textContent = fmt.percent(progress.value);
+          if (r.value === 'completed') setProgress(100);
+          if (r.value === 'backlog') setProgress(0);
         };
       }
       el.querySelector('[name="title"]').addEventListener('input', () => { validate(); if (!cover.cover) refreshCover(); });
       el.querySelector('[name="platform"]').addEventListener('input', () => { if (!cover.cover) refreshCover(); });
       validate();
+
+      // Online-Vorschläge
+      const setv = (n, v) => { const x = el.querySelector(`[name="${n}"]`); if (x) x.value = v; };
+      const titleInput = el.querySelector('[name="title"]');
+      const hintEl = el.querySelector('[data-online-hint]');
+      if (!Online.configured && isNew) hintEl.innerHTML = 'Tipp: Mit Online-Daten (Einstellungen) werden Infos und Cover automatisch vorgeschlagen.';
+      const suggest = attachSuggest({
+        input: titleInput, kind: 'game', auto: isNew,
+        async onPick(r) {
+          setv('title', r.title);
+          let filled = 0;
+          for (const [n, v] of [['publisher', r.publisher], ['developer', r.developer], ['genre', r.genre], ['series', r.series], ['year', r.year ?? '']]) {
+            if (v && !val(n).trim()) { setv(n, v); filled++; }
+          }
+          if (r.usk && !val('usk')) { setv('usk', r.usk); filled++; }
+          if (!val('platform').trim()) { const p = bestPlatform(r.platforms); if (p) { setv('platform', p); filled++; } }
+          showPlatformChips(el, r.platforms, (p) => { setv('platform', p); if (!cover.cover) refreshCover(); });
+          g.igdbId = r.igdbId;
+          validate();
+          refreshCover();
+          hintEl.textContent = 'Daten werden übernommen …';
+          const got = await applyOnlineCover(coverField, r.coverUrl);
+          hintEl.innerHTML = `${icon('check')} Von IGDB übernommen${filled ? ` – ${filled} Feld${filled === 1 ? '' : 'er'} ergänzt` : ''}${got ? ', Cover geladen' : ''}. Bereits ausgefüllte Felder bleiben unverändert.`;
+        }
+      });
+      el.querySelector('[data-online-search]').onclick = () => suggest.search(titleInput.value, { force: true });
+      if (opts.search && titleInput.value.trim()) setTimeout(() => suggest.search(titleInput.value, { force: true }), 60);
 
       el.querySelector('[data-modal="cancel"]').onclick = () => closeModal('cancel');
       const del = el.querySelector('[data-delete]');
@@ -263,7 +290,7 @@ function openGameEditor(existing, defaults = {}) {
           developer: f.developer.trim(), genre: f.genre.trim(), series: f.series.trim(),
           year: parseIntOrNull(f.year), usk: f.usk, edition: f.edition,
           editionNote: f.edition === 'standard' ? '' : f.editionNote.trim(),
-          status: f.status || 'backlog', progress: Number(f.progress) || 0,
+          status: f.status || 'backlog', progress: clampPct(parseNumber(f.progress)) ?? 0,
           playtime: parseNumber(f.playtime), condition: f.condition,
           inventory: f.inventory.trim() || Store.nextInventory('game'),
           barcode: f.barcode.trim(), price: parseNumber(f.price), purchaseDate: f.purchaseDate,
@@ -294,8 +321,8 @@ function openConsoleEditor(existing) {
   const body = `
     ${coverFieldMarkup(cover, true)}
     <fieldset class="fs"><legend>Allgemein</legend><div class="fields">
+      ${field('Name', `<div class="inline">${input('name', c.name, { placeholder: 'z. B. PlayStation 5 Slim – Vorschläge beim Tippen', attrs: 'autofocus autocomplete="off"' })}${onlineButton()}</div>`, { full: true, hint: '<div class="sg-hint" data-online-hint></div>' })}
       ${field('Plattform', input('platform', c.platform, { placeholder: 'z. B. PlayStation 5', attrs: 'list="platform-list"' }))}
-      ${field('Name', input('name', c.name, { placeholder: 'z. B. PlayStation 5 Slim' }))}
       ${field('Modell-Nr.', input('model', c.model, { placeholder: 'z. B. CFI-2016' }))}
       ${field('Edition / Farbe', input('edition', c.edition, { placeholder: 'z. B. 30th Anniversary' }))}
       ${field('Seriennummer', input('serial', c.serial), { full: true })}
@@ -325,7 +352,8 @@ function openConsoleEditor(existing) {
              <button class="btn primary" data-submit>Sichern</button>`,
     onMount(el) {
       root = el;
-      const refreshCover = mountCoverField(el, cover);
+      const coverField = mountCoverField(el, cover);
+      const refreshCover = coverField.refresh;
       const submit = el.querySelector('[data-submit]');
       const nameInput = el.querySelector('[name="name"]');
       const platformInput = el.querySelector('[name="platform"]');
@@ -342,6 +370,22 @@ function openConsoleEditor(existing) {
       });
       nameInput.addEventListener('input', () => { validate(); if (!cover.cover) refreshCover(); });
       validate();
+
+      const hintEl = el.querySelector('[data-online-hint]');
+      const suggest = attachSuggest({
+        input: nameInput, kind: 'platform', auto: isNew,
+        async onPick(r) {
+          nameInput.value = r.version ? r.version.name : r.name;
+          platformInput.value = r.platform;
+          lastPlatform = r.platform;
+          c.igdbId = r.igdbId;
+          validate();
+          refreshCover();
+          const got = await applyOnlineCover(coverField, r.version ? r.version.logoUrl : r.logoUrl);
+          hintEl.innerHTML = `${icon('check')} Von IGDB übernommen${got ? ' – Logo als Bild gesetzt' : ''}. Modell-Nr. und Seriennummer bitte selbst ergänzen.`;
+        }
+      });
+      el.querySelector('[data-online-search]').onclick = () => suggest.search(nameInput.value || platformInput.value, { force: true });
       el.querySelector('[data-modal="cancel"]').onclick = () => closeModal('cancel');
       const del = el.querySelector('[data-delete]');
       if (del) del.onclick = async () => { closeModal('cancel'); await deleteItem('consoles', existing); };
@@ -434,7 +478,7 @@ function openWishEditor(existing) {
   const body = `
     ${coverFieldMarkup(cover)}
     <fieldset class="fs"><legend>Allgemein</legend><div class="fields">
-      ${field('Titel', input('title', w.title, { placeholder: 'Pflichtfeld', attrs: 'autofocus' }), { full: true })}
+      ${field('Titel', `<div class="inline">${input('title', w.title, { placeholder: 'Pflichtfeld – Vorschläge erscheinen beim Tippen', attrs: 'autofocus autocomplete="off"' })}${onlineButton()}</div>`, { full: true, hint: '<div class="sg-hint" data-online-hint></div>' })}
       ${field('Art', select('kind', WISH_KIND, w.kind))}
       ${field('Plattform', input('platform', w.platform, { placeholder: 'z. B. PlayStation 5', attrs: 'list="platform-list"' }))}
       <div class="field full"><span>Priorität</span><div class="seg-field">
@@ -460,11 +504,32 @@ function openWishEditor(existing) {
              <button class="btn primary" data-submit>Sichern</button>`,
     onMount(el) {
       root = el;
-      const refreshCover = mountCoverField(el, cover);
+      const coverField = mountCoverField(el, cover);
+      const refreshCover = coverField.refresh;
       const submit = el.querySelector('[data-submit]');
       const validate = () => { submit.disabled = !val('title').trim(); };
       el.querySelector('[name="title"]').addEventListener('input', () => { validate(); if (!cover.cover) refreshCover(); });
       validate();
+
+      const setv = (n, v) => { const x = el.querySelector(`[name="${n}"]`); if (x) x.value = v; };
+      const titleInput = el.querySelector('[name="title"]');
+      const hintEl = el.querySelector('[data-online-hint]');
+      const suggest = attachSuggest({
+        input: titleInput, kind: 'game', auto: isNew,
+        async onPick(r) {
+          setv('title', r.title);
+          if (!val('platform').trim()) setv('platform', bestPlatform(r.platforms));
+          if (!val('releaseDate') && r.releaseDate && r.releaseDate >= isoDate(today())) setv('releaseDate', r.releaseDate);
+          if (val('kind') === 'game' && r.group === 'dlc') setv('kind', 'dlc');
+          w.igdbId = r.igdbId;
+          validate();
+          refreshCover();
+          const got = await applyOnlineCover(coverField, r.coverUrl);
+          hintEl.innerHTML = `${icon('check')} Von IGDB übernommen${got ? ', Cover geladen' : ''}.`;
+        }
+      });
+      el.querySelector('[data-online-search]').onclick = () => suggest.search(titleInput.value, { force: true });
+
       el.querySelector('[data-modal="cancel"]').onclick = () => closeModal('cancel');
       const del = el.querySelector('[data-delete]');
       if (del) del.onclick = async () => { closeModal('cancel'); await deleteItem('wishlist', existing); };
@@ -493,6 +558,7 @@ function openWishEditor(existing) {
 async function openSettings() {
   const s = Store.settings;
   const info = await window.api.appInfo();
+  const ig = await Online.refresh();
   openModal({
     title: 'Einstellungen',
     cls: 'narrow',
@@ -506,6 +572,26 @@ async function openSettings() {
       <fieldset class="fs"><legend>Wartung</legend><div class="fields">
         ${field('Standard-Erinnerung für neue Konsolen', select('defaultInterval', { 0: 'Keine', 3: 'Alle 3 Monate', 6: 'Alle 6 Monate', 12: 'Jährlich' }, s.defaultInterval), { full: true })}
       </div></fieldset>
+      <fieldset class="fs"><legend>Online-Daten (IGDB)</legend>
+        <p class="muted" style="font-size:12px;margin:0 0 10px">Für Spiel-Infos, Cover und den Release-Kalender. Kostenlos über einen Twitch-Entwicklerzugang.</p>
+        <div class="fields">
+          ${field('Client-ID', input('igdbClientId', ig.clientId, { cls: 'mono', attrs: 'autocomplete="off" spellcheck="false"' }))}
+          ${field('Client-Secret', input('igdbSecret', '', { type: 'password', placeholder: ig.hasSecret ? '•••••• gespeichert' : '', attrs: 'autocomplete="off"' }))}
+        </div>
+        <div class="inline" style="margin-top:10px;align-items:center;gap:10px">
+          <button class="btn" data-act="igdb-save">Speichern &amp; testen</button>
+          <span data-igdb-status style="font-size:12px" class="${Online.configured ? 'ok' : 'muted'}">${Online.configured ? 'Eingerichtet' : 'Noch nicht eingerichtet'}</span>
+        </div>
+        <details class="howto">
+          <summary>So bekommst du die Zugangsdaten (ca. 3 Minuten)</summary>
+          <ol>
+            <li>Auf <a href="#" data-ext="https://dev.twitch.tv/console/apps">dev.twitch.tv/console/apps</a> mit einem Twitch-Konto anmelden. Dafür muss die Zwei-Faktor-Authentifizierung im Twitch-Konto aktiv sein.</li>
+            <li><b>Register Your Application</b> klicken. Name: frei wählbar, aber eindeutig (z. B. „Spielregal-Kris“) · OAuth Redirect URL: <code>http://localhost</code> · Kategorie: <i>Application Integration</i> · Client-Typ: <i>Confidential</i>.</li>
+            <li>Bei der neuen Anwendung auf <b>Manage</b>: die <b>Client-ID</b> kopieren, unter <b>New Secret</b> ein Secret erzeugen und kopieren.</li>
+            <li>Beides oben eintragen und <b>Speichern &amp; testen</b> klicken.</li>
+          </ol>
+        </details>
+      </fieldset>
       <fieldset class="fs" style="margin-bottom:0"><legend>Daten</legend>
         <div class="inline" style="flex-wrap:wrap">
           <button class="btn" data-act="export">${icon('download')}Sicherung exportieren</button>
@@ -524,6 +610,30 @@ async function openSettings() {
       el.querySelector('[data-act="export"]').onclick = () => App.exportBackup();
       el.querySelector('[data-act="import"]').onclick = async () => { closeModal('ok'); await App.importBackup(); };
       el.querySelector('[data-act="folder"]').onclick = () => window.api.openDataFolder();
+      for (const a of $$('[data-ext]', el)) a.onclick = (e) => { e.preventDefault(); window.api.openExternal(a.dataset.ext); };
+      const status = el.querySelector('[data-igdb-status]');
+      el.querySelector('[data-act="igdb-save"]').onclick = async () => {
+        const clientId = el.querySelector('[name="igdbClientId"]').value.trim();
+        const secret = el.querySelector('[name="igdbSecret"]').value.trim();
+        const cfg = { clientId };
+        if (secret) cfg.clientSecret = secret;
+        await window.api.igdbSetConfig(cfg);
+        await Online.refresh();
+        if (!Online.configured) { status.className = 'bad'; status.textContent = 'Client-ID und Client-Secret eintragen.'; return; }
+        status.className = 'muted';
+        status.innerHTML = '<span class="spinner"></span>Verbindung wird getestet …';
+        try {
+          await Online.call('igdbTest');
+          status.className = 'ok';
+          status.textContent = '✓ Verbunden – Online-Daten sind aktiv.';
+          el.querySelector('[name="igdbSecret"]').value = '';
+          el.querySelector('[name="igdbSecret"]').placeholder = '•••••• gespeichert';
+          App.onOnlineReady();
+        } catch (err) {
+          status.className = 'bad';
+          status.textContent = err.message;
+        }
+      };
       el.querySelector('[data-submit]').onclick = () => closeModal('ok');
     }
   });

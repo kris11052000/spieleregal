@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const crypto = require('crypto');
+const { createIgdb } = require('./igdb');
 
 const isMac = process.platform === 'darwin';
 
@@ -157,7 +158,8 @@ function buildMenu() {
       { label: 'Bibliothek', accelerator: 'CmdOrCtrl+2', click: send('view:library') },
       { label: 'Konsolen', accelerator: 'CmdOrCtrl+3', click: send('view:consoles') },
       { label: 'Wunschliste', accelerator: 'CmdOrCtrl+4', click: send('view:wishlist') },
-      { label: 'Etiketten', accelerator: 'CmdOrCtrl+5', click: send('view:labels') },
+      { label: 'Release-Kalender', accelerator: 'CmdOrCtrl+5', click: send('view:calendar') },
+      { label: 'Etiketten', accelerator: 'CmdOrCtrl+6', click: send('view:labels') },
       { type: 'separator' },
       { role: 'reload', label: 'Neu laden' },
       { role: 'toggleDevTools', label: 'Entwicklerwerkzeuge' },
@@ -269,6 +271,36 @@ function registerIpc() {
   ipcMain.handle('shell:openExternal', (_e, url) => {
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
   });
+
+  // ---------- Online-Daten (IGDB) ----------
+  const igdb = createIgdb({
+    configFile: path.join(paths.data, 'igdb.json'),
+    fetchImpl: (...args) => (net.fetch ? net.fetch(...args) : fetch(...args))
+  });
+  // Ergebnis immer als { ok, data } bzw. { ok:false, code, message }
+  const wrap = (fn) => async (_e, ...args) => {
+    try {
+      return { ok: true, data: await fn(...args) };
+    } catch (err) {
+      return { ok: false, code: err.code || 'error', message: err.message || String(err) };
+    }
+  };
+  ipcMain.handle('igdb:getConfig', () => igdb.publicConfig());
+  ipcMain.handle('igdb:setConfig', (_e, cfg) => igdb.saveConfig(cfg || {}));
+  ipcMain.handle('igdb:test', wrap(() => igdb.test()));
+  ipcMain.handle('igdb:searchGames', wrap((q) => igdb.searchGames(q)));
+  ipcMain.handle('igdb:searchPlatforms', wrap((q) => igdb.searchPlatforms(q)));
+  ipcMain.handle('igdb:releases', wrap((opts) => igdb.releases(opts || {})));
+
+  ipcMain.handle('cover:fromUrl', wrap(async (url) => {
+    if (typeof url !== 'string' || !/^https:\/\/images\.igdb\.com\//.test(url)) throw new Error('Ungültige Bildadresse');
+    const res = await (net.fetch ? net.fetch(url) : fetch(url));
+    if (!res.ok) throw new Error('Cover konnte nicht geladen werden (' + res.status + ')');
+    const buf = Buffer.from(await res.arrayBuffer());
+    const name = saveCoverFromImage(nativeImage.createFromBuffer(buf));
+    if (!name) throw new Error('Cover konnte nicht gelesen werden');
+    return name;
+  }));
 }
 
 // ---------- Start ----------

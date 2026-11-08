@@ -37,7 +37,8 @@ const fmt = {
     if (Math.abs(months) < 12) return rtf.format(months, 'month');
     return rtf.format(Math.round(days / 365), 'year');
   },
-  percent(v) { return Math.round(v || 0) + ' %'; },
+  percent(v) { return this.num(v) + ' %'; },
+  num(v) { return Number(v || 0).toLocaleString('de-DE', { maximumFractionDigits: 1 }); },
   inputNumber(v) { return v == null ? '' : String(v).replace('.', ','); }
 };
 
@@ -96,3 +97,42 @@ function fileToDataUrl(file) {
     reader.readAsDataURL(file);
   });
 }
+
+/** Fortschritt: Regler (1er-Schritte) + Eingabefeld (z. B. 81,2) */
+function clampPct(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(Math.min(100, Math.max(0, n)) * 10) / 10;
+}
+
+function pctMarkup(value, { name = '', quick = false, color = '' } = {}) {
+  const v = clampPct(value) ?? 0;
+  return `<div class="pct">
+    <input type="range" min="0" max="100" step="1" value="${v}" data-pct="range" ${quick ? 'data-quick="progress"' : ''} ${color ? `style="accent-color:${color}"` : ''} aria-label="Fortschritt">
+    <label class="pct-box"><input type="text" inputmode="decimal" value="${fmt.num(v)}" data-pct="text" ${name ? `name="${name}"` : ''} ${quick ? 'data-quick="progress-text"' : ''} aria-label="Fortschritt in Prozent"><span>%</span></label>
+  </div>`;
+}
+
+// Regler und Feld synchron halten (gilt überall in der App)
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.pct === 'range') {
+    const box = t.closest('.pct')?.querySelector('[data-pct="text"]');
+    if (box) box.value = fmt.num(t.value);
+  }
+}, true);
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.pct === 'text') {
+    const v = clampPct(parseNumber(t.value)) ?? 0;
+    t.value = fmt.num(v);
+    const range = t.closest('.pct')?.querySelector('[data-pct="range"]');
+    if (range) range.value = v;
+  }
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.dataset && e.target.dataset.pct === 'text') {
+    e.preventDefault();
+    e.target.blur();
+  }
+}, true);

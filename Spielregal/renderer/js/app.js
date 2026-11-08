@@ -8,13 +8,14 @@ function toast(message) {
   toast.t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-const PREF_KEYS = ['sort', 'group', 'layout', 'inspector', 'wishSort', 'labelLayout'];
+const PREF_KEYS = ['sort', 'group', 'layout', 'inspector', 'wishSort', 'labelLayout', 'calRange', 'calPlatforms', 'calType', 'calPopular'];
 
 const App = {
   state: {
     view: 'library', platform: '', search: '',
     statusFilter: '', sort: 'title', group: 'off', layout: 'grid', inspector: true,
     wishKind: '', wishSort: 'release',
+    calRange: '90', calPlatforms: ['PlayStation 5', 'PlayStation 4', 'Nintendo Switch 2', 'Nintendo Switch'], calType: '', calPopular: true,
     labelSel: new Set(), labelLayout: 'sheet',
     selected: { game: null, console: null, wish: null }
   },
@@ -23,6 +24,7 @@ const App = {
     document.body.classList.toggle('mac', window.api.platform === 'darwin');
     this.loadPrefs();
     await Store.load();
+    await Online.refresh();
     this.bind();
     this.render();
     window.api.onMenu((cmd) => this.command(cmd));
@@ -70,6 +72,13 @@ const App = {
         const n = Views.filteredWishes(s).length;
         return { title: 'Wunschliste', subtitle: n === 1 ? '1 Wunsch' : `${n} Wünsche` };
       }
+      case 'calendar': {
+        const stand = Calendar.at ? ` · Stand ${new Date(Calendar.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : '';
+        if (!Online.configured) return { title: 'Release-Kalender', subtitle: 'Online-Daten nicht eingerichtet' };
+        if (Calendar.loading) return { title: 'Release-Kalender', subtitle: 'wird geladen …' };
+        const n = Calendar.entries(s).length;
+        return { title: 'Release-Kalender', subtitle: `${n} Termin${n === 1 ? '' : 'e'}${stand}` };
+      }
       case 'labels': {
         const n = s.labelSel.size;
         return { title: 'Etiketten', subtitle: n ? `${n} ausgewählt` : 'Einträge auswählen' };
@@ -88,12 +97,26 @@ const App = {
       : s.view === 'library' ? Views.library(s)
       : s.view === 'consoles' ? Views.consoles(s)
       : s.view === 'wishlist' ? Views.wishlist(s)
+      : s.view === 'calendar' ? Views.calendar(s)
       : Views.labels(s);
     content.scrollTop = scroll;
     content.style.overflow = s.view === 'labels' ? 'hidden' : '';
     const sub = $('[data-subtitle]');
     if (sub) sub.textContent = this.toolbarInfo().subtitle || '';
     if (s.view === 'labels') this.fitSheet();
+    if (s.view === 'calendar') Calendar.load(s);
+  },
+
+  renderCalendar() {
+    if (this.state.view !== 'calendar') return;
+    this.renderToolbar();
+    this.renderContent();
+  },
+
+  /** Nach erfolgreicher Einrichtung der Online-Daten */
+  onOnlineReady() {
+    Calendar.key = '';
+    if (this.state.view === 'calendar') this.renderCalendar();
   },
 
   renderInspector() {
@@ -185,6 +208,18 @@ const App = {
     const llay = t.closest('[data-label-layout]');
     if (llay) { this.state.labelLayout = llay.dataset.labelLayout; this.savePrefs(); this.renderToolbar(); return this.renderContent(); }
 
+    const calP = t.closest('[data-cal-platform]');
+    if (calP) {
+      const p = calP.dataset.calPlatform, list = this.state.calPlatforms;
+      this.state.calPlatforms = list.includes(p) ? list.filter((x) => x !== p) : [...list, p];
+      this.savePrefs();
+      return this.renderCalendar();
+    }
+    const calT = t.closest('[data-cal-type]');
+    if (calT) { this.state.calType = calT.dataset.calType; this.savePrefs(); return this.renderCalendar(); }
+    const calW = t.closest('[data-cal-wish]');
+    if (calW && !t.closest('[data-action]')) return this.select('wish', calW.dataset.calWish) || this.setView('wishlist');
+
     const action = t.closest('[data-action]');
     if (action && !action.disabled) return this.action(action.dataset.action, action);
 
@@ -199,14 +234,19 @@ const App = {
     const item = t.closest('[data-item]');
     if (item) {
       const kind = item.dataset.item;
-      if (item.dataset.goto) { this.state.view = item.dataset.goto; this.state.search = ''; }
+      if (item.dataset.goto) { this.state.view = item.dataset.goto; this.state.search = ''; return this.select(kind, item.dataset.id); }
+      // Doppelklick selbst erkennen (die Ansicht wird nach dem ersten Klick neu gezeichnet)
+      const key = kind + ':' + item.dataset.id, now = Date.now();
+      if (this.lastClick && this.lastClick.key === key && now - this.lastClick.t < 450) {
+        this.lastClick = null;
+        return this.edit(kind, item.dataset.id);
+      }
+      this.lastClick = { key, t: now };
       return this.select(kind, item.dataset.id);
     }
   },
 
   onDblClick(e) {
-    const item = e.target.closest('[data-item]');
-    if (item && !e.target.closest('[data-action]') && !item.dataset.goto) this.edit(item.dataset.item, item.dataset.id);
     const tl = e.target.closest('[data-maint]');
     if (tl) this.action('edit-maintenance', tl);
   },
@@ -221,8 +261,7 @@ const App = {
     if (t.dataset.quick === 'progress') {
       const g = this.current();
       if (!g) return;
-      g.progress = Number(t.value);
-      t.nextElementSibling.textContent = fmt.percent(g.progress);
+      g.progress = clampPct(t.value) ?? 0;
       Store.save(true);
       this.refreshContentSoon();
     }
@@ -232,9 +271,11 @@ const App = {
 
   onChange(e) {
     const t = e.target;
+    if (t.matches('[data-cal-popular]')) { this.state.calPopular = t.checked; this.savePrefs(); return this.renderCalendar(); }
     if (t.dataset.pref) {
       this.state[t.dataset.pref] = t.value;
       this.savePrefs();
+      if (this.state.view === 'calendar') return this.renderCalendar();
       this.renderContent();
       return;
     }
@@ -254,7 +295,8 @@ const App = {
       Store.save();
       this.render();
     }
-    if (t.dataset.quick === 'progress' && g) {
+    if (t.dataset.quick === 'progress-text' && g) g.progress = clampPct(parseNumber(t.value)) ?? 0;
+    if ((t.dataset.quick === 'progress' || t.dataset.quick === 'progress-text') && g) {
       if (g.progress > 0 && g.status === 'backlog') g.status = 'active';
       if (g.progress >= 100 && (g.status === 'active' || g.status === 'paused')) g.status = 'completed';
       g.updatedAt = new Date().toISOString();
@@ -267,6 +309,7 @@ const App = {
     const mod = e.metaKey || e.ctrlKey;
     const typing = e.target.closest('input, textarea, select, [contenteditable]');
     if (e.key === 'Escape') {
+      if (closeOpenSuggest()) return;
       if ($('.ctx')) return hideContextMenu();
       if (Modal.current) return closeModal('cancel');
       if (e.target.id === 'search' && e.target.value) { e.target.value = ''; this.state.search = ''; return this.renderContent(); }
@@ -277,7 +320,7 @@ const App = {
     }
     // Ohne natives Menü (z. B. im Browser) Tastenkürzel selbst behandeln
     if (mod && !window.api.hasNativeMenu) {
-      const map = { n: 'new', f: 'find', ',': 'settings', 1: 'view:overview', 2: 'view:library', 3: 'view:consoles', 4: 'view:wishlist', 5: 'view:labels' };
+      const map = { n: 'new', f: 'find', ',': 'settings', 1: 'view:overview', 2: 'view:library', 3: 'view:consoles', 4: 'view:wishlist', 5: 'view:calendar', 6: 'view:labels' };
       if (map[e.key]) { e.preventDefault(); return this.command(map[e.key]); }
     }
     if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
@@ -379,6 +422,9 @@ const App = {
         return w && this.acquire(w);
       }
       case 'open-link': return item && item.link && window.api.openExternal(normalizeUrl(item.link));
+      case 'online-fill': return item && openGameEditor(item, {}, { search: true });
+      case 'cal-refresh': try { localStorage.removeItem(CAL_CACHE_KEY); } catch (_) {} return Calendar.load(s, true);
+      case 'cal-add': return addReleaseToWishlist(el.dataset.igdb, el);
     }
   },
 

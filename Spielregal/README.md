@@ -34,7 +34,7 @@ Node.js LTS installieren, dann `Installer erstellen.command` (Mac) bzw. `Install
 
 Systemvoraussetzung: macOS 11 oder neuer bzw. Windows 10/11.
 
-## Funktionen (Etappe 1)
+## Funktionen
 
 - **Bibliothek:** Spiele inkl. Limited/Collector's Editions, Steelbooks und Bundles. Felder für Cover, Plattform, Publisher, Entwickler, Jahr, Genre, Reihe, USK (in Originalfarben), Zustand (Sealed, CIB, OVP, Lose, Digital, Beschädigt), Barcode, Kaufpreis und Kaufdatum.
 - **Spielstand:** Status Ungespielt, Am Spielen, Pausiert, Erledigt oder Abgebrochen, dazu Fortschritt in Prozent und Spielzeit.
@@ -42,10 +42,12 @@ Systemvoraussetzung: macOS 11 oder neuer bzw. Windows 10/11.
 - **Konsolen:** Wartungsprotokoll (Ausblasen, Isopropyl, Lüfter, Wärmeleitpaste/Pads, Kontakte, Reparatur) mit Erinnerungsintervall. Fällige Wartungen werden markiert.
 - **Inventar & QR-Etiketten:** Inventarnummern werden automatisch vergeben, z. B. `SP-0001` und `KO-0001`. Etiketten im Format 60 × 30 mm mit QR-Code (`spielregal://item/SP-0001?id=…`) lassen sich drucken oder als PDF speichern, wahlweise einzeln oder als A4-Bogen 3 × 8.
 - **Wunschliste:** Priorität, Erscheinungsdatum, Zielpreis und Shop-Link. Mit *Gekauft* übernimmst du einen Eintrag samt Inventarnummer in die Sammlung.
+- **Online-Daten (IGDB):** Beim Anlegen von Spielen, Konsolen und Wünschen erscheinen Vorschläge schon beim Tippen. Ein Klick übernimmt Cover, Publisher, Entwickler, Jahr, Genre, Reihe und USK. Bereits ausgefüllte Felder bleiben unverändert. Für vorhandene Spiele gibt es „Infos online ergänzen“ in der rechten Leiste.
+- **Release-Kalender:** Kommende Spiele, DLCs und Editionen für die gewählten Plattformen, plus eigene Termine aus der Wunschliste. Mit einem Klick landet ein Eintrag samt Cover auf der Wunschliste.
 - **Übersicht:** Kennzahlen, aktuelle Spiele, Wartungsstatus, kommende Termine und Verteilung nach Plattform.
 - **Sicherung:** Export und Import als JSON inklusive Cover (Einstellungen → Daten).
 
-**Tastenkürzel:** ⌘/Strg+N neuer Eintrag · ⌘/Strg+F Suche · ⌘/Strg+1–5 Ansichten · Entf löschen · ⌘/Strg+Enter im Dialog sichern
+**Tastenkürzel:** ⌘/Strg+N neuer Eintrag · ⌘/Strg+F Suche · ⌘/Strg+1–6 Ansichten · Entf löschen · ⌘/Strg+Enter im Dialog sichern
 
 **Daten** liegen hier:
 - Mac: `~/Library/Application Support/Spielregal`
@@ -53,7 +55,20 @@ Systemvoraussetzung: macOS 11 oder neuer bzw. Windows 10/11.
 
 Bei jedem Speichern bleibt die vorherige Version als `.bak` erhalten.
 
-## Nächste Etappen
+## Online-Daten einrichten (einmalig)
 
-- **Etappe 2:** Suche über IGDB beim Anlegen (Cover, Publisher, USK, Reihe) und ein Release-Kalender mit „Zur Wunschliste“. Dafür brauchst du einen kostenlosen Twitch-Developer-Account.
-- **Etappe 3:** Marktwert der Sammlung über die PriceCharting-API (kostenpflichtig) und Barcode-Scan.
+1. Auf <https://dev.twitch.tv/console/apps> mit einem Twitch-Konto anmelden. Die Zwei-Faktor-Authentifizierung muss dort aktiv sein.
+2. *Register Your Application* klicken und eintragen:
+   - Name: frei wählbar, aber eindeutig
+   - OAuth Redirect URL: `http://localhost`
+   - Kategorie: *Application Integration*
+   - Client-Typ: *Confidential*
+3. Unter *Manage* die Client-ID kopieren und mit *New Secret* ein Secret erzeugen.
+4. In Spielregal unter *Einstellungen → Online-Daten* beides eintragen und *Speichern & testen* klicken.
+
+Die Zugangsdaten liegen nur lokal (`igdb.json` im Datenordner) und sind nicht Teil der Sicherung.
+
+## Nächste Etappe
+
+- Marktwert der Sammlung über die PriceCharting-API (kostenpflichtig)
+- Barcode-Scan
