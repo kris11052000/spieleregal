@@ -99,10 +99,44 @@ const Extras = {
         recomputeChecklistProgress(item);
         this.save(item, kind, item.progressAuto);
         return true;
-      case 'check-expand':
-        App.state.checkOpen = { ...(App.state.checkOpen || {}), [el.dataset.group]: true };
+      case 'check-group-toggle': {
+        const items = checklistItemsIn(item, el.dataset.group);
+        if (!items.length) return true;
+        const all = items.every((c) => c.done);
+        for (const c of items) c.done = !all;
+        recomputeChecklistProgress(item);
+        this.save(item, kind, item.progressAuto);
+        return true;
+      }
+      case 'check-group-collapse': {
+        const key = item.id + '|' + el.dataset.group;
+        const c = { ...(App.state.checkCollapsed || {}) };
+        if (c[key]) delete c[key]; else c[key] = true;
+        App.state.checkCollapsed = c;
+        App.savePrefs();
         App.renderInspector();
         return true;
+      }
+      case 'check-group-add':
+        App.state.checkTarget = { id: item.id, group: el.dataset.group };
+        App.renderInspector();
+        setTimeout(() => $('[data-check-new]')?.focus(), 0);
+        return true;
+      case 'check-group-del': {
+        const name = el.dataset.group;
+        const items = checklistItemsIn(item, name);
+        const drop = () => {
+          item.checklist = (item.checklist || []).filter((c) => !items.includes(c));
+          item.checkSections = (item.checkSections || []).filter((n) => n !== name && !n.startsWith(name + ' › '));
+          if (App.state.checkTarget && App.state.checkTarget.group === name) App.state.checkTarget = null;
+          recomputeChecklistProgress(item);
+          this.save(item, kind, item.progressAuto);
+        };
+        if (!items.length) { drop(); return true; }
+        confirmDialog({ title: `Bereich „${name}“ entfernen?`, text: `Der Bereich und seine ${items.length} Punkte werden entfernt.`, ok: 'Entfernen' })
+          .then((ok) => { if (ok) drop(); });
+        return true;
+      }
       case 'check-template': {
         const r = el.getBoundingClientRect();
         showContextMenu(r.left, r.bottom + 4, Object.entries(CHECK_TEMPLATES).map(([k, t]) => [t.label, 'list', () => {
@@ -167,7 +201,26 @@ const Extras = {
     text = String(text || '').trim();
     if (!text || !item) return;
     item.checklist = item.checklist || [];
-    item.checklist.push({ id: uid(), text, done: false, group: '' });
+    const sel = $('[data-check-section]');
+    // Neuer Bereich: Eingabe wird zum Bereichsnamen
+    if (sel && sel.value === '__new') {
+      item.checkSections = item.checkSections || [];
+      if (!item.checkSections.includes(text)) item.checkSections.push(text);
+      App.state.checkTarget = { id: item.id, group: text };
+      this.save(item, kind, false);
+      setTimeout(() => $('[data-check-new]')?.focus(), 0);
+      return;
+    }
+    // „Welt 1 > Level 1-1“ legt direkt im Bereich an
+    let group = sel ? sel.value : '';
+    const m = text.match(/^(.+?)\s*>\s*(.+)$/);
+    if (m) {
+      group = m[1].trim(); text = m[2].trim();
+      item.checkSections = item.checkSections || [];
+      if (!item.checkSections.includes(group) && !item.checklist.some((c) => c.group === group)) item.checkSections.push(group);
+    }
+    App.state.checkTarget = group ? { id: item.id, group } : null;
+    item.checklist.push({ id: uid(), text, done: false, group });
     recomputeChecklistProgress(item);
     this.save(item, kind, item.progressAuto);
     setTimeout(() => $('[data-check-new]')?.focus(), 0);

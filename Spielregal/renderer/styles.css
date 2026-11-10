@@ -549,7 +549,7 @@ input[type=range] { flex: 1; accent-color: var(--accent); }
 .summary { font-size: 12px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; user-select: text; }
 .chips .chip { height: 24px; }
 
-.ck-list { display: flex; flex-direction: column; gap: 1px; max-height: 420px; overflow-y: auto; margin: 0 -6px 10px; padding: 0 6px; }
+.ck-list { display: flex; flex-direction: column; gap: 1px; margin: 0 -6px 10px; padding: 0 6px; }
 .ck-group { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 650; color: var(--muted); padding: 8px 2px 4px; text-transform: uppercase; letter-spacing: .04em; }
 .ck-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 2px; border-radius: 6px; }
 .ck-row:hover { background: var(--hover); }
@@ -636,3 +636,37 @@ input[type=range] { flex: 1; accent-color: var(--accent); }
 .imp-sources { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 10px; }
 .mpanel-head .chev { border: 0; background: transparent; box-shadow: none; color: var(--faint); }
 .mpanel-head .chev:hover { background: var(--hover); color: var(--text); }
+
+/* ---------- 0.5: Fotosuche für Konsolen ---------- */
+.photo-search { margin: -6px 0 18px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-top: 10px; max-height: 300px; overflow: auto; }
+.photo-hit { display: flex; flex-direction: column; gap: 4px; padding: 5px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; text-align: left; }
+.photo-hit img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; display: block; }
+.photo-hit span { font-size: 10px; color: #555; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.photo-hit:hover { border-color: var(--accent-line); }
+.photo-hit.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- 0.6: Checklisten-Bereiche ---------- */
+.ck-sec { display: flex; align-items: center; gap: 6px; padding: 8px 2px 4px; }
+.ck-sec.lvl1 { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 10px; }
+.ck-list > .ck-sec.lvl1:first-child { border-top: 0; margin-top: 0; padding-top: 4px; }
+.ck-sec.lvl2 { padding: 6px 2px 3px; }
+.ck-sec .ck { margin-top: 0; }
+.ck-sec .ck.all { background: var(--green); border-color: var(--green); }
+.ck-sec .ck.some { border-color: var(--green); }
+.ck-dash { width: 8px; height: 2px; border-radius: 1px; background: var(--green); display: block; }
+.ck-sec-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer;
+  font-size: 12.5px; font-weight: 650; color: var(--text); }
+.ck-sec.lvl2 .ck-sec-name { font-size: 12px; font-weight: 600; color: var(--muted); }
+.ck-sec.done .ck-sec-name { color: var(--muted); }
+.chev-s { display: inline-grid; place-items: center; color: var(--faint); }
+.chev-s .i { width: 11px; height: 11px; transition: transform .15s; }
+.chev-s.closed .i { transform: rotate(-90deg); }
+.ck-count { font-size: 11px; font-variant-numeric: tabular-nums; }
+.ck-sec-btn { width: 22px; height: 22px; border: 0; box-shadow: none; background: transparent; opacity: 0; }
+.ck-sec-btn .i { width: 12px; height: 12px; }
+.ck-sec:hover .ck-sec-btn { opacity: 1; }
+.ck-children { padding-left: 14px; display: flex; flex-direction: column; gap: 1px; }
+.ck-add { display: flex; gap: 6px; }
+.ck-add .select { height: 28px; font-size: 12px; max-width: 42%; }
+.ck-add .input { flex: 1; min-width: 0; }

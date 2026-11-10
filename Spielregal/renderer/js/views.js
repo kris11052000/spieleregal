@@ -86,10 +86,10 @@ const Views = {
             <option value="digital" ${state.formatFilter === 'digital' ? 'selected' : ''}>Nur digital</option>
           </select>
           <select class="select" data-pref="sort" title="Sortieren nach">
-            ${Object.entries(SORTS).map(([k, l]) => `<option value="${k}" ${state.sort === k ? 'selected' : ''}>↕ ${l}</option>`).join('')}
+            ${Object.entries(SORTS).map(([k, l]) => `<option value="${k}" ${state.sort === k ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
           <select class="select" data-pref="group" title="Gruppieren nach">
-            ${Object.entries(GROUPS).map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${k === 'off' ? l : '▤ ' + l}</option>`).join('')}
+            ${Object.entries(GROUPS).map(([k, l]) => `<option value="${k}" ${state.group === k ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
           <div class="seg"><button class="${state.layout === 'grid' ? 'on' : ''}" data-layout="grid" title="Raster">${icon('grid')}</button><button class="${state.layout === 'list' ? 'on' : ''}" data-layout="list" title="Liste">${icon('list')}</button></div>
           ${Accounts.anyConnected ? `<button class="icon-btn" data-action="sync" title="Trophäen & Erfolge abgleichen">${icon('star')}</button>` : ''}
@@ -104,7 +104,16 @@ const Views = {
           </select>
           ${add('Eintrag')}${inspectorBtn}`;
       case 'consoles':
-        return `${title}${search('Name, Modell, Seriennummer …')}${add('Konsole')}${inspectorBtn}`;
+        return `${title}${search('Name, Modell, Seriennummer …')}
+          <select class="select" data-pref="consoleSort" title="Sortieren nach">
+            ${Object.entries({ name: 'Name', year: 'Erscheinungsjahr (alt → neu)', yearDesc: 'Erscheinungsjahr (neu → alt)', added: 'Zuletzt hinzugefügt', value: 'Wert', due: 'Wartung fällig' })
+              .map(([k, l]) => `<option value="${k}" ${(state.consoleSort || 'name') === k ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <select class="select" data-pref="consoleGroup" title="Gruppieren">
+            <option value="maker" ${(state.consoleGroup || 'maker') === 'maker' ? 'selected' : ''}>Nach Hersteller</option>
+            <option value="off" ${state.consoleGroup === 'off' ? 'selected' : ''}>Ohne Gruppen</option>
+          </select>
+          ${add('Konsole')}${inspectorBtn}`;
       case 'wishlist':
         return `${title}${search('Titel, Plattform …')}
           <select class="select" data-pref="wishKind" title="Art">
@@ -113,7 +122,7 @@ const Views = {
           </select>
           <select class="select" data-pref="wishSort" title="Sortieren nach">
             ${Object.entries({ release: 'Erscheinungsdatum', priority: 'Priorität', title: 'Titel', added: 'Zuletzt hinzugefügt' })
-              .map(([k, l]) => `<option value="${k}" ${state.wishSort === k ? 'selected' : ''}>↕ ${l}</option>`).join('')}
+              .map(([k, l]) => `<option value="${k}" ${state.wishSort === k ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
           ${add('Wunsch')}${inspectorBtn}`;
       case 'calendar':
@@ -199,7 +208,29 @@ const Views = {
   filteredConsoles(state) {
     const q = state.search.trim().toLowerCase();
     const list = q ? Store.consoles.filter((c) => Consoles.matches(c, q)) : Store.consoles;
-    return [...list].sort((a, b) => (Consoles.isDue(b) - Consoles.isDue(a)) || compareText(a.name, b.name));
+    const by = state.consoleSort || 'name';
+    const yr = (c) => Number(c.year) || 9999;
+    return [...list].sort((a, b) => {
+      switch (by) {
+        case 'year': return (yr(a) - yr(b)) || compareText(a.name, b.name);
+        case 'yearDesc': return (yr(b) - yr(a)) || compareText(a.name, b.name);
+        case 'added': return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+        case 'value': return ((itemValue(b) || 0) - (itemValue(a) || 0)) || compareText(a.name, b.name);
+        case 'due': return (Consoles.isDue(b) - Consoles.isDue(a)) || compareText(a.name, b.name);
+        default: return compareText(a.name, b.name);
+      }
+    });
+  },
+
+  consoleCard(c, state) {
+    const due = Consoles.isDue(c);
+    return `<div class="card ${state.selected.console === c.id ? 'sel' : ''}" data-item="console" data-id="${c.id}">
+      <div class="cover landscape">${coverInner(c.cover, c.name, manufacturerFor(c.platform || c.name))}</div>
+      <div class="meta">
+        <div style="display:flex;gap:8px;align-items:center"><div class="t" style="flex:1">${h(c.name)}</div>${conditionPill(c.condition)}</div>
+        <div class="s">${h(Consoles.subtitle(c))}</div>
+        <div class="maint-line ${due ? 'warn' : ''}">${icon(due ? 'alert' : 'wrench')}<span>${h(Consoles.statusText(c))}</span></div>
+      </div></div>`;
   },
 
   consoles(state) {
@@ -210,16 +241,24 @@ const Views = {
     }
     const list = this.filteredConsoles(state);
     if (!list.length) return emptyState('search', 'Keine Treffer', 'Passe die Suche an.');
-    return `<div class="pad"><div class="grid wide">${list.map((c) => {
-      const due = Consoles.isDue(c);
-      return `<div class="card ${state.selected.console === c.id ? 'sel' : ''}" data-item="console" data-id="${c.id}">
-        <div class="cover landscape">${coverInner(c.cover, c.name, manufacturerFor(c.platform || c.name))}</div>
-        <div class="meta">
-          <div style="display:flex;gap:8px;align-items:center"><div class="t" style="flex:1">${h(c.name)}</div>${conditionPill(c.condition)}</div>
-          <div class="s">${h(Consoles.subtitle(c))}</div>
-          <div class="maint-line ${due ? 'warn' : ''}">${icon(due ? 'alert' : 'wrench')}<span>${h(Consoles.statusText(c))}</span></div>
-        </div></div>`;
-    }).join('')}</div></div>`;
+    if ((state.consoleGroup || 'maker') === 'off') {
+      return `<div class="pad"><div class="grid wide">${list.map((c) => this.consoleCard(c, state)).join('')}</div></div>`;
+    }
+    const groups = new Map();
+    for (const c of list) {
+      const k = consoleBrand(c);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(c);
+    }
+    const keys = [...groups.keys()].sort((a, b) => {
+      const ia = BRAND_ORDER.indexOf(a), ib = BRAND_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || compareText(a, b);
+    });
+    return `<div class="pad">${keys.map((k) => `
+      <div class="group">
+        <div class="group-head"><h2>${h(k)}</h2><span class="n">${groups.get(k).length}</span></div>
+        <div class="grid wide">${groups.get(k).map((c) => this.consoleCard(c, state)).join('')}</div>
+      </div>`).join('')}</div>`;
   },
 
   // ---------- Wunschliste ----------

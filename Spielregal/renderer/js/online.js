@@ -29,7 +29,7 @@ const Online = {
   searchGames(q) { return this.call('igdbSearchGames', q); },
   searchPlatforms(q) { return this.call('igdbSearchPlatforms', q); },
   releases(opts) { return this.call('igdbReleases', opts); },
-  cover(url) { return url ? this.call('coverFromUrl', url) : Promise.resolve(''); }
+  cover(url, opts) { return url ? this.call('coverFromUrl', url, opts) : Promise.resolve(''); }
 };
 
 /** Wählt die passendste Plattform: bevorzugt die, die in der Sammlung am häufigsten vorkommt */
@@ -188,7 +188,7 @@ async function applyOnlineCover(coverField, url, { replace = false } = {}) {
   if (!url || (!replace && coverField.state.cover)) return false;
   coverField.loading(true);
   try {
-    const name = await Online.cover(url);
+    const name = await Online.cover(url, coverField.opts());
     coverField.set(name);
     return true;
   } catch (err) {

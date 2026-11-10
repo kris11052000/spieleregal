@@ -5,7 +5,8 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const crypto = require('crypto');
 const { createIgdb } = require('./igdb');
-const { createPsn, createXbox, createEbay, wikipediaImage } = require('./services');
+const { createPsn, createXbox, createEbay, wikipediaImage, commonsSearch } = require('./services');
+const { productShot } = require('./imagefit');
 const https = require('https');
 
 const isMac = process.platform === 'darwin';
@@ -56,8 +57,11 @@ function safeCoverPath(name) {
   return path.join(paths.covers, name);
 }
 
-function saveCoverFromImage(image) {
+function saveCoverFromImage(image, opts = {}) {
   if (!image || image.isEmpty()) return null;
+  if (opts && opts.product) {
+    try { image = productShot(nativeImage, image); } catch (_) { /* Original verwenden */ }
+  }
   const { width, height } = image.getSize();
   const max = 900;
   if (width > max || height > max) {
@@ -184,19 +188,26 @@ function registerIpc() {
   ipcMain.handle('app:info', () => ({ dataPath: paths.data, platform: process.platform, version: app.getVersion() }));
   ipcMain.handle('app:openDataFolder', () => shell.openPath(paths.data));
 
-  ipcMain.handle('cover:fromDataUrl', (_e, dataUrl) => {
+  ipcMain.handle('cover:fromDataUrl', (_e, dataUrl, opts) => {
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return null;
-    return saveCoverFromImage(nativeImage.createFromDataURL(dataUrl));
+    return saveCoverFromImage(nativeImage.createFromDataURL(dataUrl), opts);
   });
 
-  ipcMain.handle('cover:choose', async () => {
+  // Vorhandenes Cover als einheitliches Produktfoto neu speichern
+  ipcMain.handle('cover:product', (_e, name) => {
+    const p = safeCoverPath(name);
+    if (!p || !fs.existsSync(p)) return null;
+    return saveCoverFromImage(nativeImage.createFromPath(p), { product: true });
+  });
+
+  ipcMain.handle('cover:choose', async (_e, opts) => {
     const res = await dialog.showOpenDialog(mainWindow, {
       title: 'Cover auswählen',
       properties: ['openFile'],
       filters: [{ name: 'Bilder', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic'] }]
     });
     if (res.canceled || !res.filePaths[0]) return null;
-    return saveCoverFromImage(nativeImage.createFromPath(res.filePaths[0]));
+    return saveCoverFromImage(nativeImage.createFromPath(res.filePaths[0]), opts);
   });
 
   ipcMain.handle('cover:delete', (_e, name) => {
@@ -338,14 +349,15 @@ function registerIpc() {
     if (buf.length > 6 * 1024 * 1024) throw new Error('Die Seite ist zu groß.');
     return { html: buf.toString('utf8'), url: res.url || url };
   }));
+  ipcMain.handle('commons:search', wrap((q) => commonsSearch(fetchImpl, String(q || '').slice(0, 120))));
   ipcMain.handle('wiki:image', wrap((names) => wikipediaImage(fetchImpl, Array.isArray(names) ? names.slice(0, 4) : [])));
 
-  ipcMain.handle('cover:fromUrl', wrap(async (url) => {
+  ipcMain.handle('cover:fromUrl', wrap(async (url, opts) => {
     if (typeof url !== 'string' || !/^https:\/\/(images\.igdb\.com|upload\.wikimedia\.org|image\.api\.playstation\.com|psnobj\.prod\.dl\.playstation\.net|store-images\.s-microsoft\.com|images-eds-ssl\.xboxlive\.com)\//.test(url)) throw new Error('Ungültige Bildadresse');
     const res = await fetchImpl(url, { headers: { 'User-Agent': 'Spielregal/0.3' } });
     if (!res.ok) throw new Error('Cover konnte nicht geladen werden (' + res.status + ')');
     const buf = Buffer.from(await res.arrayBuffer());
-    const name = saveCoverFromImage(nativeImage.createFromBuffer(buf));
+    const name = saveCoverFromImage(nativeImage.createFromBuffer(buf), opts);
     if (!name) throw new Error('Cover konnte nicht gelesen werden');
     return name;
   }));

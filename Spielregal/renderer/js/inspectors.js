@@ -157,30 +157,53 @@ const GameBlocks = {
   checklist(g) {
     const list = g.checklist || [];
     const done = list.filter((c) => c.done).length;
-    const groups = new Map();
-    for (const c of list) {
-      const k = c.group || '';
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k).push(c);
-    }
-    const open = App.state.checkOpen || {};
-    const rows = [...groups.entries()].map(([name, items]) => {
+    const target = App.state.checkTarget && App.state.checkTarget.id === g.id ? App.state.checkTarget.group : '';
+    const sections = checklistSections(g);
+    const collapsed = App.state.checkCollapsed || {};
+    const row = (c) => `<div class="ck-row ${c.done ? 'done' : ''}" title="${h(c.detail || '')}">
+        <button class="ck" data-action="check-toggle" data-check="${h(c.id)}" aria-label="Erledigt">${c.done ? icon('check') : ''}</button>
+        ${c.kind && TROPHY_COLORS[c.kind] ? `<span class="tdot" style="background:${TROPHY_COLORS[c.kind]}" title="${TROPHY_LABEL[c.kind]}"></span>` : ''}
+        <span class="ck-text">${h(c.text)}${c.detail ? `<small>${h(c.detail)}</small>` : ''}</span>
+        <button class="icon-btn ck-del" data-action="check-del" data-check="${h(c.id)}" title="Entfernen">${icon('close')}</button>
+      </div>`;
+    const head = (name, label, level) => {
+      const items = checklistItemsIn(g, name);
       const d = items.filter((c) => c.done).length;
-      const collapsed = name && items.length > 8 && !open[name];
-      const shown = collapsed ? items.filter((c) => !c.done).slice(0, 6) : items;
-      return `${name ? `<div class="ck-group"><span>${h(name)}</span><span class="muted">${d}/${items.length}</span></div>` : ''}
-        ${shown.map((c) => `<div class="ck-row ${c.done ? 'done' : ''}" title="${h(c.detail || '')}">
-          <button class="ck" data-action="check-toggle" data-check="${h(c.id)}" aria-label="Erledigt">${c.done ? icon('check') : ''}</button>
-          ${c.kind && TROPHY_COLORS[c.kind] ? `<span class="tdot" style="background:${TROPHY_COLORS[c.kind]}" title="${TROPHY_LABEL[c.kind]}"></span>` : ''}
-          <span class="ck-text">${h(c.text)}${c.detail ? `<small>${h(c.detail)}</small>` : ''}</span>
-          <button class="icon-btn ck-del" data-action="check-del" data-check="${h(c.id)}" title="Entfernen">${icon('close')}</button>
-        </div>`).join('')}
-        ${collapsed ? `<button class="btn ghost small" data-action="check-expand" data-group="${h(name)}">Alle ${items.length} anzeigen (${items.length - d} offen)</button>` : ''}`;
-    }).join('');
+      const state = items.length && d === items.length ? 'all' : d ? 'some' : '';
+      const key = g.id + '|' + name;
+      return `<div class="ck-sec lvl${level} ${state === 'all' ? 'done' : ''}">
+        <button class="ck ${state}" data-action="check-group-toggle" data-group="${h(name)}" aria-label="Alle abhaken" ${items.length ? '' : 'disabled'}>${state === 'all' ? icon('check') : state === 'some' ? '<span class="ck-dash"></span>' : ''}</button>
+        <button class="ck-sec-name" data-action="check-group-collapse" data-group="${h(name)}">${h(label)}<span class="chev-s ${collapsed[key] ? 'closed' : ''}">${icon('chevron')}</span></button>
+        <span class="muted ck-count">${d}/${items.length}</span>
+        <button class="icon-btn ck-sec-btn" data-action="check-group-add" data-group="${h(name)}" title="Punkt in diesem Bereich hinzufügen">${icon('plus')}</button>
+        <button class="icon-btn ck-sec-btn" data-action="check-group-del" data-group="${h(name)}" title="Bereich entfernen">${icon('close')}</button>
+      </div>`;
+    };
+    let rows = list.filter((c) => !c.group).map(row).join('');
+    for (const top of sections.tops) {
+      const key = g.id + '|' + top;
+      rows += head(top, top, 1);
+      if (collapsed[key]) continue;
+      rows += `<div class="ck-children">`;
+      rows += list.filter((c) => c.group === top).map(row).join('');
+      for (const sub of sections.subs.get(top) || []) {
+        const sk = g.id + '|' + sub;
+        rows += head(sub, sub.slice(top.length + 3), 2);
+        if (!collapsed[sk]) rows += `<div class="ck-children">${list.filter((c) => c.group === sub).map(row).join('')}</div>`;
+      }
+      rows += `</div>`;
+    }
+    const opts = ['', ...sections.all];
     return {
       extra: list.length ? `<span class="muted">${done}/${list.length}</span>` : '',
-      body: `${list.length ? `<div class="ck-list">${rows}</div>` : '<p class="muted" style="margin:0 0 8px;font-size:12px">Eigene Ziele für 100 % abhaken, eine Liste von einer Guide-/Wiki-Seite importieren oder Trophäen übernehmen.</p>'}
-        <div class="ck-add"><input class="input" data-check-new placeholder="Neuer Punkt … (Enter)"></div>
+      body: `${rows ? `<div class="ck-list">${rows}</div>` : '<p class="muted" style="margin:0 0 8px;font-size:12px">Eigene Ziele für 100 % abhaken – mit Bereichen wie „Welt 1“ und Punkten darunter. Oder eine Liste von einer Guide-/Wiki-Seite importieren bzw. Trophäen übernehmen.</p>'}
+        <div class="ck-add">
+          <select class="select" data-check-section title="Bereich">
+            ${opts.map((o) => `<option value="${h(o)}" ${o === target ? 'selected' : ''}>${o ? h(o) : 'Ohne Bereich'}</option>`).join('')}
+            <option value="__new">+ Neuer Bereich …</option>
+          </select>
+          <input class="input" data-check-new placeholder="${target ? 'Punkt in „' + h(target) + '“ … (Enter)' : 'Neuer Punkt … (Enter)'}">
+        </div>
         <div class="inline" style="margin-top:8px;flex-wrap:wrap">
           <button class="btn small" data-action="check-import">${icon('download')}Von Webseite</button>
           <button class="btn small" data-action="check-template">${icon('list')}Vorlage</button>
@@ -196,6 +219,28 @@ const GameBlocks = {
   notes(g) { return Blocks.notes(g); },
   label(g) { return Blocks.label(g, 'game'); }
 };
+
+/** Bereiche der Checkliste: Hauptbereiche und Unterbereiche („Welt 1 › Sternenmünzen“) */
+function checklistSections(g) {
+  const names = [...(g.checkSections || [])];
+  for (const c of g.checklist || []) if (c.group && !names.includes(c.group)) names.push(c.group);
+  const tops = [], subs = new Map();
+  for (const n of names) {
+    const top = n.split(' › ')[0];
+    if (!tops.includes(top)) tops.push(top);
+    if (n !== top) {
+      if (!subs.has(top)) subs.set(top, []);
+      if (!subs.get(top).includes(n)) subs.get(top).push(n);
+    }
+  }
+  const all = [];
+  for (const t of tops) { all.push(t); for (const s of subs.get(t) || []) all.push(s); }
+  return { tops, subs, all };
+}
+
+function checklistItemsIn(g, name) {
+  return (g.checklist || []).filter((c) => c.group === name || String(c.group || '').startsWith(name + ' › '));
+}
 
 function trophyLinkSelect(g) {
   const fam = /playstation|^ps/i.test(g.platform || '') ? 'psn' : /xbox/i.test(g.platform || '') ? 'xbox' : null;

@@ -307,7 +307,19 @@ function createEbay({ configFile, fetchImpl }) {
     } catch (_) {
       throw new ServiceError('network', 'Keine Verbindung zu eBay.');
     }
-    if (!res.ok) throw new ServiceError('auth', 'eBay lehnt die Zugangsdaten ab – App ID und Cert ID (Production) prüfen.');
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const e = await res.json();
+        detail = [e.error, e.error_description].filter(Boolean).join(': ');
+      } catch (_) { /* keine Details */ }
+      let hint = 'App ID und Cert ID (Production) prüfen.';
+      if (/invalid_client/i.test(detail)) hint = 'App ID und Cert ID passen nicht zusammen oder das Production-Keyset ist (noch) nicht freigeschaltet.';
+      else if (/unauthorized_client/i.test(detail)) hint = 'Das Production-Keyset ist bei eBay noch nicht freigeschaltet (Account-Deletion-Ausnahme gespeichert? Freischaltung kann einige Stunden dauern).';
+      else if (/invalid_scope/i.test(detail)) hint = 'Dem Keyset fehlt die Berechtigung für die Browse-API.';
+      else if (res.status >= 500) hint = 'eBay hat gerade ein Problem – später erneut versuchen.';
+      throw new ServiceError('auth', `eBay lehnt ab (HTTP ${res.status}${detail ? ' – ' + detail : ''}). ${hint}`);
+    }
     const j = await res.json();
     token = { value: j.access_token, expires: Date.now() + (Number(j.expires_in) || 7200) * 1000, appId: cfg.appId };
     return token.value;
@@ -334,7 +346,11 @@ function createEbay({ configFile, fetchImpl }) {
     } catch (_) {
       throw new ServiceError('network', 'Keine Verbindung zu eBay.');
     }
-    if (!res.ok) throw new ServiceError('http', 'eBay-Fehler ' + res.status);
+    if (!res.ok) {
+      let detail = '';
+      try { const e = await res.json(); detail = ((e.errors || [])[0] || {}).longMessage || ((e.errors || [])[0] || {}).message || ''; } catch (_) { /* egal */ }
+      throw new ServiceError('http', 'eBay-Fehler ' + res.status + (detail ? ' – ' + detail : ''));
+    }
     const j = await res.json();
     const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
     const prices = (j.itemSummaries || [])
@@ -371,6 +387,7 @@ function createEbay({ configFile, fetchImpl }) {
 
   async function test() {
     await getToken(store.load());
+    await estimate({ query: 'Mario Kart Switch', condition: 'used' });
     return true;
   }
 
@@ -404,4 +421,32 @@ async function wikipediaImage(fetchImpl, names) {
   return '';
 }
 
-module.exports = { createPsn, createXbox, createEbay, wikipediaImage, durationHours, xboxPlatform, ServiceError };
+/** Produktfotos auf Wikimedia Commons suchen */
+async function commonsSearch(fetchImpl, query) {
+  if (!query.trim()) return [];
+  const params = new URLSearchParams({
+    action: 'query', format: 'json', generator: 'search', gsrnamespace: '6', gsrlimit: '36',
+    gsrsearch: query + ' filetype:bitmap', prop: 'imageinfo', iiprop: 'url|size|mime', iiurlwidth: '1600'
+  });
+  const res = await fetchImpl('https://commons.wikimedia.org/w/api.php?' + params, {
+    headers: { Accept: 'application/json', 'Api-User-Agent': 'Spielregal/0.5 (Sammlungsverwaltung)', 'User-Agent': 'Spielregal/0.5 (Sammlungsverwaltung)' }
+  });
+  if (!res.ok) throw new ServiceError('network', 'Wikimedia Commons ist nicht erreichbar (' + res.status + ').');
+  const j = await res.json();
+  const pages = Object.values((j.query && j.query.pages) || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+  const out = [];
+  for (const p of pages) {
+    const ii = (p.imageinfo || [])[0];
+    if (!ii || !/jpeg|png|webp/.test(ii.mime || '')) continue;
+    if ((ii.width || 0) < 300 || (ii.height || 0) < 200) continue;
+    const big = ii.thumburl || ii.url;
+    const thumb = /\/\d+px-/.test(big) ? big.replace(/\/\d+px-/, '/360px-') : big;
+    out.push({
+      title: p.title.replace(/^File:/, '').replace(/\.[a-z]+$/i, '').replace(/[_-]+/g, ' '),
+      url: big, thumb, width: ii.width, height: ii.height
+    });
+  }
+  return out;
+}
+
+module.exports = { commonsSearch, createPsn, createXbox, createEbay, wikipediaImage, durationHours, xboxPlatform, ServiceError };

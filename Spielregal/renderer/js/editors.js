@@ -87,18 +87,26 @@ function readForm(root) {
 
 // ---------- Cover-Feld ----------
 
-function coverFieldMarkup(state, landscape = false) {
-  return `<div class="cover-field">
+function coverFieldMarkup(state, landscape = false, { product = false } = {}) {
+  return `<div class="cover-field ${product ? 'product' : ''}">
     <div class="cover ${landscape ? 'landscape' : ''}" data-cover-drop>${coverInner(state.cover, state.title(), state.subtitle())}</div>
     <div>
-      <b>Cover</b>
+      <b>${product ? 'Foto' : 'Cover'}</b>
       <p>Bild hierher ziehen, auswählen oder mit ${window.api.platform === 'darwin' ? '⌘' : 'Strg+'}V einfügen.</p>
-      <div class="inline">
+      <div class="inline" style="flex-wrap:wrap">
+        ${product ? `<button type="button" class="btn small primary" data-cover="search">${icon('search')}Foto suchen …</button>` : ''}
         <button type="button" class="btn small" data-cover="choose">Auswählen …</button>
+        ${product ? `<button type="button" class="btn small" data-cover="fit" ${state.cover ? '' : 'hidden'} title="Rand entfernen und mittig auf Weiß setzen">Zentrieren</button>` : ''}
         <button type="button" class="btn small danger" data-cover="remove" ${state.cover ? '' : 'hidden'}>Entfernen</button>
       </div>
+      ${product ? `<label class="toggle" style="margin-top:8px"><input type="checkbox" data-cover-product ${Store.settings.productPhotos === false ? '' : 'checked'}><span>Neue Fotos einheitlich zentrieren (weißer Hintergrund)</span></label>` : ''}
     </div>
-  </div>`;
+  </div>
+  ${product ? `<div class="photo-search" data-photo-search hidden>
+    <div class="inline"><input class="input" data-photo-q placeholder="z. B. Game Boy Color Teal" spellcheck="false"><button type="button" class="btn" data-photo-go>Suchen</button></div>
+    <p class="muted small" style="margin:6px 0 0">Fotos von Wikimedia Commons – meist freigestellte Studiofotos. Farbe oder Edition mit in die Suche schreiben, z. B. „Wii U black“ oder „Xbox 360 S“.</p>
+    <div class="photo-grid" data-photo-grid></div>
+  </div>` : ''}`;
 }
 
 /** Verwaltet Cover-Auswahl im Dialog; räumt bei Abbruch neu angelegte Dateien wieder weg */
@@ -123,14 +131,61 @@ function mountCoverField(root, state) {
     box.innerHTML = coverInner(state.cover, state.title(), state.subtitle());
     removeBtn.hidden = !state.cover;
   };
+  const productBox = root.querySelector('[data-cover-product]');
+  const fitBtn = root.querySelector('[data-cover="fit"]');
+  const opts = () => (productBox && productBox.checked ? { product: true } : {});
+  if (productBox) productBox.onchange = () => { Store.settings.productPhotos = productBox.checked; Store.save(); };
+  const baseRefresh = refresh;
+  const refreshAll = () => { baseRefresh(); if (fitBtn) fitBtn.hidden = !state.cover; };
   const set = (name) => {
     if (!name) return;
     state.created.push(name);
     state.cover = name;
-    refresh();
+    refreshAll();
   };
-  root.querySelector('[data-cover="choose"]').onclick = async () => set(await window.api.chooseCover());
-  removeBtn.onclick = () => { state.cover = ''; refresh(); };
+  root.querySelector('[data-cover="choose"]').onclick = async () => set(await window.api.chooseCover(opts()));
+  removeBtn.onclick = () => { state.cover = ''; refreshAll(); };
+  if (fitBtn) fitBtn.onclick = async () => { if (state.cover) set(await window.api.coverProduct(state.cover)); };
+
+  // Fotosuche (Wikimedia Commons)
+  const panel = root.querySelector('[data-photo-search]');
+  const searchBtn = root.querySelector('[data-cover="search"]');
+  if (panel && searchBtn) {
+    const q = panel.querySelector('[data-photo-q]');
+    const grid = panel.querySelector('[data-photo-grid]');
+    const run = async () => {
+      const query = q.value.trim();
+      if (!query) return;
+      grid.innerHTML = '<div class="muted small" style="padding:14px 0"><span class="spinner"></span>Suche …</div>';
+      try {
+        const res = await Online.call('commonsSearch', query);
+        grid.innerHTML = res.length
+          ? res.map((r, i) => `<button type="button" class="photo-hit" data-photo="${i}" title="${h(r.title)} (${r.width}×${r.height})"><img src="${h(r.thumb)}" alt="" loading="lazy"><span>${h(r.title)}</span></button>`).join('')
+          : '<div class="muted small" style="padding:14px 0">Nichts gefunden. Probier es mit weniger oder englischen Begriffen, z. B. „GameCube console“.</div>';
+        grid.onclick = async (e) => {
+          const b = e.target.closest('[data-photo]');
+          if (!b) return;
+          const hit = res[Number(b.dataset.photo)];
+          for (const x of grid.querySelectorAll('.photo-hit')) x.classList.toggle('on', x === b);
+          box.classList.add('loading');
+          try { set(await Online.cover(hit.url, opts())); } catch (err) { toast(err.message || 'Foto konnte nicht geladen werden'); }
+          finally { box.classList.remove('loading'); }
+        };
+      } catch (err) {
+        grid.innerHTML = `<div class="bad small" style="padding:14px 0">${h(err.message)}</div>`;
+      }
+    };
+    searchBtn.onclick = () => {
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) {
+        if (!q.value) q.value = [state.title(), root.querySelector('[name="edition"]')?.value || ''].filter(Boolean).join(' ').trim();
+        q.focus();
+        if (q.value && !grid.children.length) run();
+      }
+    };
+    panel.querySelector('[data-photo-go]').onclick = run;
+    q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); run(); } });
+  }
 
   box.ondragover = (e) => { e.preventDefault(); box.classList.add('drag'); };
   box.ondragleave = () => box.classList.remove('drag');
@@ -138,15 +193,15 @@ function mountCoverField(root, state) {
     e.preventDefault();
     box.classList.remove('drag');
     const file = [...e.dataTransfer.files].find((f) => f.type.startsWith('image/'));
-    if (file) set(await window.api.coverFromDataUrl(await fileToDataUrl(file)));
+    if (file) set(await window.api.coverFromDataUrl(await fileToDataUrl(file), opts()));
   };
   root.addEventListener('paste', async (e) => {
     const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith('image/'));
     if (!file) return;
     e.preventDefault();
-    set(await window.api.coverFromDataUrl(await fileToDataUrl(file)));
+    set(await window.api.coverFromDataUrl(await fileToDataUrl(file), opts()));
   });
-  return { state, refresh, set, loading: (on) => box.classList.toggle('loading', !!on) };
+  return { state, refresh: refreshAll, set, opts, loading: (on) => box.classList.toggle('loading', !!on) };
 }
 
 function inventoryControl(type, value, excludeId) {
@@ -343,7 +398,7 @@ function openConsoleEditor(existing) {
   const cover = createCoverState(c.cover, () => val('name') || c.name, () => manufacturerFor(val('platform') || c.platform));
 
   const body = `
-    ${coverFieldMarkup(cover, true)}
+    ${coverFieldMarkup(cover, true, { product: true })}
     <fieldset class="fs"><legend>Allgemein</legend><div class="fields">
       ${field('Name', `<div class="inline">${input('name', c.name, { placeholder: 'z. B. PlayStation 5 Slim – Vorschläge beim Tippen', attrs: 'autofocus autocomplete="off"' })}${onlineButton()}</div>`, { full: true, hint: '<div class="sg-hint" data-online-hint></div>' })}
       ${field('Plattform', input('platform', c.platform, { placeholder: 'z. B. PlayStation 5', attrs: 'list="platform-list"' }))}
@@ -613,6 +668,10 @@ async function openSettings(tab = 'general') {
       <fieldset class="fs" style="margin:14px 0 0"><legend>Detailansicht</legend>
         <p class="muted" style="font-size:12px;margin:0 0 10px">Bereiche lassen sich in der Detailansicht am Griff ziehen und per Klick auf die Überschrift einklappen.</p>
         <button class="btn" data-act="panels-reset">${icon('refresh')}Reihenfolge zurücksetzen</button>
+      </fieldset>
+      <fieldset class="fs" style="margin:14px 0 0"><legend>Konsolenfotos</legend>
+        <p class="muted" style="font-size:12px;margin:0 0 10px">Entfernt bei allen Konsolenfotos den Rand und setzt die Konsole mittig auf eine weiße Fläche – damit alle Karten einheitlich aussehen.</p>
+        <button class="btn" data-act="photos-fit">${icon('grid')}Alle Konsolenfotos zentrieren</button>
       </fieldset>`,
 
     igdb: `
@@ -806,6 +865,24 @@ async function openSettings(tab = 'general') {
       });
 
       act('panels-reset', () => { PanelSystem.reset(); toast('Reihenfolge zurückgesetzt'); });
+      act('photos-fit', async () => {
+        const list = Store.consoles.filter((c) => c.cover);
+        if (!list.length) return toast('Keine Konsolen mit Foto');
+        let n = 0;
+        for (const c of list) {
+          const name = await window.api.coverProduct(c.cover);
+          if (name) {
+            const old = c.cover;
+            c.cover = name;
+            c.updatedAt = new Date().toISOString();
+            if (!Store.coverInUse(old)) window.api.deleteCover(old);
+            n++;
+          }
+        }
+        Store.save();
+        App.render();
+        toast(`${n} Konsolenfoto${n === 1 ? '' : 's'} zentriert`);
+      });
       act('export', () => App.exportBackup());
       act('import', async () => { closeModal('ok'); await App.importBackup(); });
       act('folder', () => window.api.openDataFolder());

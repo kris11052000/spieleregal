@@ -105,6 +105,16 @@ function manufacturerFor(platform) {
   return 'Sonstige';
 }
 
+/** Marke für die Gruppierung der Konsolen */
+const BRAND_ORDER = ['Nintendo', 'PlayStation', 'Xbox', 'Sega', 'Atari', 'Sonstige'];
+function consoleBrand(c) {
+  const m = manufacturerFor(c.platform || c.name);
+  if (m === 'Sony') return 'PlayStation';
+  if (m === 'Microsoft') return 'Xbox';
+  if (m === 'Sonstige' && c.manufacturer) return c.manufacturer;
+  return m || 'Sonstige';
+}
+
 // ---------- Speicher ----------
 
 const Store = {
@@ -205,10 +215,24 @@ const Store = {
   /** Ergänzt Einträge aus einer Sicherung (bestehende IDs bleiben unangetastet) */
   merge(imported) {
     let added = 0;
+    const sig = (x) => String(x.title || x.name || '').trim().toLowerCase() + '|' + String(x.platform || '').toLowerCase();
     for (const key of ['games', 'consoles', 'wishlist', 'accessories']) {
       const ids = new Set(this.data[key].map((x) => x.id));
+      const sigs = new Set(this.data[key].map(sig));
       for (const item of imported[key] || []) {
-        if (item && item.id && !ids.has(item.id)) { this.data[key].push(item); added++; }
+        if (!item || !item.id || ids.has(item.id)) continue;
+        // gleicher Titel auf gleicher Plattform ist schon vorhanden → überspringen
+        if ((key === 'games' || key === 'wishlist') && sigs.has(sig(item))) continue;
+        if (key === 'games') {
+          if (!Array.isArray(item.checklist)) item.checklist = [];
+          if (!item.format) item.format = 'physical';
+        }
+        // fehlende Inventarnummern fortlaufend vergeben
+        const type = { games: 'game', consoles: 'console', accessories: 'accessory' }[key];
+        if (type && !item.inventory && !(key === 'games' && item.format === 'digital')) item.inventory = this.nextInventory(type);
+        this.data[key].push(item);
+        ids.add(item.id); sigs.add(sig(item));
+        added++;
       }
     }
     this.save();

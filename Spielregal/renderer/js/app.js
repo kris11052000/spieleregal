@@ -8,12 +8,12 @@ function toast(message) {
   toast.t = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-const PREF_KEYS = ['sort', 'group', 'layout', 'inspector', 'wishSort', 'labelLayout', 'calRange', 'calPlatforms', 'calType', 'calPopular'];
+const PREF_KEYS = ['sort', 'group', 'consoleSort', 'consoleGroup', 'checkCollapsed', 'layout', 'inspector', 'wishSort', 'labelLayout', 'calRange', 'calPlatforms', 'calType', 'calPopular'];
 
 const App = {
   state: {
     view: 'library', platform: '', search: '',
-    statusFilter: '', sort: 'title', group: 'off', layout: 'grid', inspector: true,
+    statusFilter: '', sort: 'title', group: 'off', consoleSort: 'name', consoleGroup: 'maker', checkCollapsed: {}, layout: 'grid', inspector: true,
     wishKind: '', wishSort: 'release',
     calRange: '90', calPlatforms: ['PlayStation 5', 'PlayStation 4', 'Nintendo Switch 2', 'Nintendo Switch'], calType: '', calPopular: true,
     labelSel: new Set(), labelLayout: 'sheet',
@@ -281,6 +281,17 @@ const App = {
 
   onChange(e) {
     const t = e.target;
+    if (t.matches('[data-check-section]')) {
+      const item = this.current();
+      const inp = $('[data-check-new]');
+      if (t.value === '__new') {
+        if (inp) { inp.placeholder = 'Name des neuen Bereichs, z. B. Welt 1 (Enter)'; inp.focus(); }
+      } else {
+        this.state.checkTarget = t.value && item ? { id: item.id, group: t.value } : null;
+        if (inp) { inp.placeholder = t.value ? `Punkt in „${t.value}“ … (Enter)` : 'Neuer Punkt … (Enter)'; inp.focus(); }
+      }
+      return;
+    }
     if (t.matches('[data-cal-popular]')) { this.state.calPopular = t.checked; this.savePrefs(); return this.renderCalendar(); }
     if (t.dataset.pref) {
       this.state[t.dataset.pref] = t.value;
